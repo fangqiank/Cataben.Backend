@@ -1,0 +1,138 @@
+﻿using Cataben.API.Services;
+using Cataben.Application.DTOs;
+using Cataben.Domain.Entities;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace Cataben.API.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    [EnableRateLimiting("Default")]
+    public class AuthController(
+        IUserRepository userRepository,
+        ISubmissionRepository submissionRepository,
+        IUnitOfWork unitOfWork,
+        ICurrentUserService currentUser,
+        ILogger<AuthController> logger
+        ) : ControllerBase
+    {
+        [HttpPost("webhook/clerk")]
+        public async Task<IActionResult> ClerkWebhook([FromBody] ClerkWebhookPayload payload)
+        {
+            try
+            {
+                if (payload.Type == "user.created" || payload.Type == "user.updated")
+                {
+                    var externalId = payload.Data.Id;
+                    var email = payload.Data.EmailAddresses?.FirstOrDefault()?.EmailAddress ?? "";
+                    var username = payload.Data.Username ?? email.Split('@')[0];
+
+                    var existingUser = await userRepository.GetByExternalIdAsync(externalId);
+                    if (existingUser == null)
+                    {
+                        var user = new User(email, username, externalId);
+                        await userRepository.AddAsync(user);
+                        await unitOfWork.SaveChangesAsync();
+
+                        logger.LogInformation("User created from Clerk webhook: {UserId} ({Email})", user.Id, email);
+                    }
+                    else
+                    {
+                        // Update user info if needed
+                        await unitOfWork.SaveChangesAsync();
+                    }
+                }
+                return Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error processing Clerk webhook");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        [HttpGet("me")]
+        [Authorize]
+        public async Task<IActionResult> GetCurrentUser()
+        {
+            var resolvedUserId = await currentUser.GetUserIdAsync();
+            if (resolvedUserId is null) return NotFound();
+            var userId = resolvedUserId.Value;
+            // Use the basic projection (no Submissions/Achievements navigation loaded) and
+            // gather the aggregates via lightweight scalar queries instead.
+            var user = await userRepository.GetByIdBasicAsync(userId);
+            if (user == null)
+                return NotFound();
+
+            var submissionsCount = await submissionRepository.GetUserSubmissionCountAsync(userId);
+            var successfulSubmissions = await submissionRepository.GetUserSuccessfulCountAsync(userId);
+            var achievementsCount = await userRepository.GetCompletedAchievementCountAsync(userId);
+            var submissionDates = await submissionRepository.GetUserSubmissionDatesAsync(userId);
+
+            return Ok(new UserDto
+            {
+                Id = user.Id,
+                Username = user.Username,
+                Email = user.Email,
+                Role = user.Role,
+                Xp = user.Xp,
+                Gems = user.Gems,
+                Level = user.CalculateLevel(),
+                SubmissionsCount = submissionsCount,
+                SuccessfulSubmissions = successfulSubmissions,
+                AchievementsCount = achievementsCount,
+                CurrentStreak = CalculateStreak(submissionDates),
+                CreatedAt = user.CreatedAt,
+                LastActiveAt = user.LastActiveAt,
+                RevealsRemaining = user.RevealsRemaining
+            });
+        }
+
+        private int CalculateStreak(IEnumerable<DateTime> submissionDates)
+        {
+            var dates = submissionDates
+                .Select(d => d.Date)
+                .Distinct()
+                .OrderByDescending(d => d)
+                .ToList();
+
+            if (!dates.Any()) return 0;
+
+            var streak = 0;
+            var expectedDate = dates.First();
+            foreach (var date in dates)
+            {
+                if (date == expectedDate)
+                {
+                    streak++;
+                    expectedDate = expectedDate.AddDays(-1);
+                }
+                else if (date < expectedDate)
+                {
+                    break;
+                }
+            }
+            return streak;
+        }
+    }
+
+    public class ClerkWebhookPayload
+    {
+        public string Type { get; set; } = string.Empty;
+        public ClerkUserData Data { get; set; } = new();
+    }
+
+    public class ClerkUserData
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Username { get; set; } = string.Empty;
+        public List<ClerkEmail> EmailAddresses { get; set; } = new();
+    }
+
+    public class ClerkEmail
+    {
+        public string EmailAddress { get; set; } = string.Empty;
+    }
+}

@@ -1,0 +1,56 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>389c95ca-d64c-4e45-a794-0fe6af6b4067</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MediatR" Version="14.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.10" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <!--
+      Design-time only: unify the Roslyn version graph. EF Core Design brings
+      Microsoft.CodeAnalysis.CSharp 5.6.0 but also CSharp.Workspaces 5.0.0
+      (both pin Microsoft.CodeAnalysis.Common to an exact version). A mixed 5.0.0/5.6.0
+      Roslyn load crashes the migration scaffolder at runtime (TypeLoadException:
+      ReduceExtensionMember). Pinning Common + CSharp.Workspaces to 5.6.0 keeps every
+      Roslyn assembly on 5.6.0. PrivateAssets keeps these out of the published API.
+    -->
+    <PackageReference Include="Microsoft.CodeAnalysis.Common" Version="5.6.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.17.0-beta.1" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.16.16" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
+    <!-- Serilog.AspNetCore 10.0.0 already brings Serilog.Sinks.Console (>=6.1.1) transitively;
+         we just opt into it in Program.cs via .WriteTo.Console(). -->
+    <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+    <PackageReference Include="StackExchange.Redis" Version="3.0.25" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cataben.Application\Cataben.Application.csproj" />
+    <ProjectReference Include="..\Cataben.Infrastructure\Cataben.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

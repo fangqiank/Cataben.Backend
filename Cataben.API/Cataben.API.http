@@ -1,0 +1,6 @@
+@Cataben.API_HostAddress = http://localhost:5277
+
+GET {{Cataben.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

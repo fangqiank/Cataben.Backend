@@ -1,0 +1,153 @@
+using Cataben.API.Services;
+using Cataben.Application.DTOs;
+using Cataben.Domain.Entities;
+using Cataben.Infrastructure.Repositories;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+
+namespace Cataben.API.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    [EnableRateLimiting("Default")]
+    public class LearningPathController(
+        ILearningPathRepository learningPathRepository,
+        IChallengeRepository challengeRepository,
+        ISubmissionRepository submissionRepository,
+        IUserRepository userRepository,
+        ICurrentUserService currentUser,
+        ILogger<LearningPathController> logger
+    ) : ControllerBase
+    {
+        [HttpGet]
+        [ProducesResponseType(typeof(IEnumerable<LearningPathDto>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetLearningPaths([FromQuery] bool onlyPublished = true)
+        {
+            var paths = await learningPathRepository.GetAllAsync(onlyPublished);
+
+            // 同详情端点：一次查询拿当前用户全部已解题 id，循环内与每路径的题集求交集算进度。
+            // 匿名 / 无匹配用户 → 空 solved 集，进度为 0/false（与 GET /{id} 行为一致）。
+            var userId = await currentUser.GetUserIdAsync();
+            var solvedIds = userId is null
+                ? new HashSet<Guid>()
+                : (await submissionRepository.GetSolvedChallengeIdsAsync(userId.Value)).ToHashSet();
+
+            var result = new List<LearningPathDto>();
+            foreach (var path in paths)
+            {
+                var challengeIds = (await challengeRepository.GetByLearningPathAsync(path.Id))
+                    .Select(c => c.Id)
+                    .ToHashSet();
+                var total = challengeIds.Count;
+                var completed = challengeIds.Count(id => solvedIds.Contains(id));
+
+                result.Add(new LearningPathDto
+                {
+                    Id = path.Id,
+                    Name = path.Name,
+                    Description = path.Description,
+                    Icon = path.Icon,
+                    CoverImage = path.CoverImage,
+                    Level = path.Level,
+                    IsPublished = path.IsPublished,
+                    ChallengeCount = total,
+                    XpReward = path.XpReward,
+                    GemReward = path.GemReward,
+                    CreatedAt = path.CreatedAt,
+                    PublishedAt = path.PublishedAt,
+                    Progress = total > 0 ? (int)Math.Round((double)completed / total * 100) : 0,
+                    IsCompleted = total > 0 && completed == total,
+                    CompletedChallenges = completed,
+                    TotalChallenges = total
+                });
+            }
+
+            return Ok(result);
+        }
+
+        [HttpGet("{id}")]
+        [ProducesResponseType(typeof(LearningPathDetailDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetLearningPath(Guid id)
+        {
+            var path = await learningPathRepository.GetByIdAsync(id);
+            if (path == null) return NotFound();
+
+            var challenges = (await challengeRepository.GetByLearningPathAsync(id)).ToList();
+
+            // Real-time progress from the user's solved challenges — no need for a manual POST to create
+            // a UserLearningPath row first. Anonymous / no matching user → empty solved set.
+            var userId = await currentUser.GetUserIdAsync();
+            var solvedIds = userId is null
+                ? new HashSet<Guid>()
+                : (await submissionRepository.GetSolvedChallengeIdsAsync(userId.Value)).ToHashSet();
+
+            var challengeDtos = challenges
+                .Select(c => new ChallengeBriefDto
+                {
+                    Id = c.Id,
+                    Title = c.Title,
+                    Description = c.Description,
+                    Type = c.Type.ToString(),
+                    Difficulty = c.Difficulty.Name,
+                    XpReward = c.XpReward,
+                    IsCompleted = solvedIds.Contains(c.Id)
+                })
+                .ToList();
+
+            var total = challengeDtos.Count;
+            var completed = challengeDtos.Count(c => c.IsCompleted);
+
+            return Ok(new LearningPathDetailDto
+            {
+                Id = path.Id,
+                Name = path.Name,
+                Description = path.Description,
+                Icon = path.Icon,
+                CoverImage = path.CoverImage,
+                Level = path.Level,
+                IsPublished = path.IsPublished,
+                Challenges = challengeDtos,
+                Progress = total > 0 ? (int)Math.Round((double)completed / total * 100) : 0,
+                IsCompleted = total > 0 && completed == total,
+                CompletedChallenges = completed,
+                TotalChallenges = total,
+                XpReward = path.XpReward,
+                GemReward = path.GemReward,
+                CreatedAt = path.CreatedAt,
+                PublishedAt = path.PublishedAt
+            });
+        }
+
+        [HttpPost("{id}/progress")]
+        [Authorize]
+        public async Task<IActionResult> UpdateProgress(Guid id, [FromBody] UpdateProgressRequest request)
+        {
+            var resolvedUserId = await currentUser.GetUserIdAsync();
+            if (resolvedUserId is null) return NotFound();
+            var userId = resolvedUserId.Value;
+            var path = await learningPathRepository.GetByIdAsync(id);
+            if (path == null) return NotFound();
+
+            var progress = await learningPathRepository.GetUserProgressAsync(userId, id);
+            if (progress == null)
+            {
+                progress = new UserLearningPath(
+                    await userRepository.GetByIdAsync(userId),
+                    path);
+            }
+
+            progress.UpdateProgress(request.CompletedChallenges);
+            await learningPathRepository.UpdateUserProgressAsync(progress);
+
+            return Ok(new { progress = progress.Progress, isCompleted = progress.IsCompleted });
+        }
+
+    }
+
+    public class UpdateProgressRequest
+    {
+        public int CompletedChallenges { get; set; }
+    }
+}

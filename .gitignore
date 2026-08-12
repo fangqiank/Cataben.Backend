@@ -1,0 +1,35 @@
+## Build output
+**/bin/
+**/obj/
+
+## Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.vspscc
+
+## User-specific / agent instructions (local only — not for the public repo)
+CLAUDE.md
+.claude/
+
+## Env / secrets (defensive — backend secrets live in user-secrets, outside the repo)
+.env*
+secrets.json
+*.pfx
+*.p12
+
+## OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+## Logs
+*.log
+logs/
+
+## Test results
+[Tt]est[Rr]esult*/

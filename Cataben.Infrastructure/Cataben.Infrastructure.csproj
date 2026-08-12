@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.10" />
+    <!-- Persistence layer owns the DB provider: needed by AppDbContext (UseNpgsql) and the
+         generated migrations (Npgsql.EntityFrameworkCore.PostgreSQL.Metadata). -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.10" />
+    <PackageReference Include="StackExchange.Redis" Version="3.0.25" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Cataben.Application\Cataben.Application.csproj" />
+    <ProjectReference Include="..\Cataben.Domain\Cataben.Domain.csproj" />
+    <ProjectReference Include="..\Cataben.Worker\Cataben.Worker.csproj" />
+  </ItemGroup>
+
+</Project>

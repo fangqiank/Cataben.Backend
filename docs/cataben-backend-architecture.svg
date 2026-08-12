@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 580" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d97706"/>
+    </marker>
+  </defs>
+
+  <rect width="860" height="580" fill="#ffffff"/>
+
+  <text x="130" y="36" font-size="20" font-weight="700" fill="#0f172a">Cataben.Backend — Clean Architecture</text>
+  <text x="130" y="58" font-size="13" fill="#64748b">arrows = “depends on” · dependency direction points inward (downward)</text>
+
+  <!-- API -->
+  <rect x="130" y="72" width="560" height="66" rx="8" fill="#f0f9ff" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="148" y="100" font-size="15" font-weight="700" fill="#0c4a6e">Cataben.API</text>
+  <text x="148" y="122" font-size="12" fill="#475569">Web composition root · Controllers · Middleware · DI · Clerk JWT auth · OpenTelemetry</text>
+  <line x1="420" y1="138" x2="420" y2="166" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Infrastructure -->
+  <rect x="130" y="168" width="560" height="66" rx="8" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="148" y="196" font-size="15" font-weight="700" fill="#5b21b6">Cataben.Infrastructure</text>
+  <text x="148" y="218" font-size="12" fill="#475569">EF Core / Npgsql · Repositories · UnitOfWork · CodeExecutor (in-process Roslyn) · Infra services</text>
+  <!-- flagged edge -->
+  <line x1="420" y1="234" x2="420" y2="262" stroke="#d97706" stroke-width="2" marker-end="url(#arrow-amber)"/>
+  <text x="430" y="254" font-size="11" font-weight="600" fill="#b45309">intentional: Infra consumes Worker’s execution primitives</text>
+
+  <!-- Worker -->
+  <rect x="130" y="264" width="560" height="66" rx="8" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+  <text x="148" y="292" font-size="15" font-weight="700" fill="#92400e">Cataben.Worker</text>
+  <text x="148" y="314" font-size="12" fill="#475569">Background host SDK · SandboxExecutor / TestRunner / ExecutionMessage (shared execution assembly)</text>
+  <line x1="420" y1="330" x2="420" y2="358" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Application -->
+  <rect x="130" y="360" width="560" height="66" rx="8" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="148" y="388" font-size="15" font-weight="700" fill="#1e3a8a">Cataben.Application</text>
+  <text x="148" y="410" font-size="12" fill="#475569">MediatR (CQRS) · Commands / Queries · Handlers · DTOs · Repository interfaces · Exceptions</text>
+  <line x1="420" y1="426" x2="420" y2="454" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <!-- Domain -->
+  <rect x="130" y="456" width="560" height="66" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="148" y="484" font-size="15" font-weight="700" fill="#14532d">Cataben.Domain</text>
+  <text x="148" y="506" font-size="12" fill="#475569">Entities · Value Objects · Enums · Domain Events · no external dependencies</text>
+
+  <!-- Shared (standalone) -->
+  <rect x="710" y="360" width="140" height="66" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="722" y="388" font-size="14" font-weight="700" fill="#334155">Cataben.Shared</text>
+  <text x="722" y="406" font-size="11" fill="#64748b">standalone constants</text>
+  <text x="722" y="420" font-size="11" fill="#64748b">(referenced by all)</text>
+
+  <text x="130" y="556" font-size="11" fill="#94a3b8">Solution uses the XML-based .slnx format · targets .NET 10 · project dirs live at the repo root under virtual /src/ folders.</text>
+</svg>

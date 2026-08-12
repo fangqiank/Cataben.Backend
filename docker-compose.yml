@@ -1,0 +1,42 @@
+# Local development infrastructure for Cataben.Backend.
+# Brings up ONLY the backing services (PostgreSQL + Redis) the API needs at runtime.
+# The API and Worker are run from the host via `dotnet run`, not from this compose file,
+# so connection strings in appsettings.Development.json point at localhost.
+#
+# (Replaces an earlier "full topology" compose that referenced ./backend, ./sandbox,
+#  ./frontend build contexts that do not exist in this repo.)
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: cataben-postgres
+    environment:
+      POSTGRES_USER: cataben
+      POSTGRES_PASSWORD: cataben123
+      POSTGRES_DB: cataben
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cataben -d cataben"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: cataben-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:
+  redis-data:

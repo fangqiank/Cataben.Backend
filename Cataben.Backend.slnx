@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/src/">
+    <File Path="docker-compose.yml" />
+  </Folder>
+  <Folder Name="/src/Cataben.API/">
+    <Project Path="Cataben.API/Cataben.API.csproj" Id="5e31a27b-4d03-46da-a540-3e0ef784dce5" />
+  </Folder>
+  <Folder Name="/src/Cataben.Application/">
+    <Project Path="Cataben.Application/Cataben.Application.csproj" Id="71d09205-e7bc-4bf0-a7d9-d526fb5f1f50" />
+  </Folder>
+  <Folder Name="/src/Cataben.Domain/">
+    <Project Path="Cataben.Domain/Cataben.Domain.csproj" />
+  </Folder>
+  <Folder Name="/src/Cataben.Infrastructure/">
+    <Project Path="Cataben.Infrastructure/Cataben.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Cataben.Worker/">
+    <Project Path="Cataben.Worker/Cataben.Worker.csproj" Id="646c181c-2ca5-4afc-aa5a-415fd6e8a19c" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="Cataben.Shared/Cataben.Shared.csproj" Id="786396da-cfdb-467a-8878-3b91a31af9f4" />
+  </Folder>
+</Solution>
