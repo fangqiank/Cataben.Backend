@@ -1,7 +1,9 @@
 # Local development infrastructure for Cataben.Backend.
-# Brings up ONLY the backing services (PostgreSQL + Redis) the API needs at runtime.
-# The API and Worker are run from the host via `dotnet run`, not from this compose file,
-# so connection strings in appsettings.Development.json point at localhost.
+# Brings up the backing services the API/Worker need at runtime: PostgreSQL, Redis, and NATS
+# (JetStream enabled — the async code-execution pipeline publishes code.execute durably and
+#  code.result.* over Core NATS). The API and Worker themselves are run from the host via
+# `dotnet run`, not from this compose file, so connection strings in
+# appsettings.Development.json point at localhost.
 #
 # (Replaces an earlier "full topology" compose that referenced ./backend, ./sandbox,
 #  ./frontend build contexts that do not exist in this repo.)
@@ -37,6 +39,24 @@ services:
       timeout: 3s
       retries: 20
 
+  nats:
+    # JetStream (-js) gives durable, at-least-once delivery for code.execute so a submission
+    # survives a Worker crash or NATS restart. -sd /data persists streams/consumers to a volume.
+    image: nats:2.10-alpine
+    container_name: cataben-nats
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "4222:4222"   # NATS client protocol (API + Worker connect here)
+      - "8222:8222"   # HTTP monitoring (/healthz, /varz) — handy in dev
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   postgres-data:
   redis-data:
+  nats-data:

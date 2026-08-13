@@ -16,8 +16,7 @@ namespace Cataben.API.Controllers
         IChallengeRepository challengeRepository,
         ISubmissionRepository submissionRepository,
         IUserRepository userRepository,
-        ICurrentUserService currentUser,
-        ILogger<LearningPathController> logger
+        ICurrentUserService currentUser
     ) : ControllerBase
     {
         [HttpGet]
@@ -133,9 +132,12 @@ namespace Cataben.API.Controllers
             var progress = await learningPathRepository.GetUserProgressAsync(userId, id);
             if (progress == null)
             {
-                progress = new UserLearningPath(
-                    await userRepository.GetByIdAsync(userId),
-                    path);
+                // GetByIdAsync returns User? — the row could be gone between the CurrentUserService
+                // lookup and now; guard it rather than passing null to the UserLearningPath ctor.
+                var user = await userRepository.GetByIdAsync(userId);
+                if (user == null)
+                    return NotFound();
+                progress = new UserLearningPath(user, path);
             }
 
             progress.UpdateProgress(request.CompletedChallenges);

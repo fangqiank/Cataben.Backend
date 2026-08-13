@@ -17,6 +17,11 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Serilog;
 using Serilog.Events;
+using Cataben.API.BackgroundServices;
+using Cataben.Application.Services;
+using Cataben.Shared.Constants;
+using Cataben.Shared.Messaging;
+using NATS.Extensions.Microsoft.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -123,7 +128,17 @@ builder.Services.AddScoped<ILearningPathRepository, LearningPathRepository>();
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
+
+// Real NATS: Core fire-and-forget for code.result.* + JetStream durable for code.execute.
+// AddNatsClient registers INatsConnection (singleton) bound to the "Nats" config section.
+var natsUrl = builder.Configuration["Nats:Url"] ?? "nats://localhost:4222";
+builder.Services.AddNatsClient(nats => nats.ConfigureOptions(opts =>
+    opts.Configure(o => o.Opts = o.Opts with { Url = natsUrl })));
+// IMessageBus/NatsMessageBus now come from Cataben.Shared.Messaging.
 builder.Services.AddSingleton<IMessageBus, NatsMessageBus>();
+// Consumes code.result.{id} (Core NATS) published by the Worker → persist outcome + gamify.
+builder.Services.AddHostedService<ExecutionResultReceiver>();
+builder.Services.AddScoped<ISubmissionCompletionService, SubmissionCompletionService>();
 builder.Services.AddScoped<IAchievementService, AchievementService>();
 builder.Services.AddScoped<IQuestService, QuestService>();
 builder.Services.AddScoped<IRewardService, RewardService>();
@@ -202,6 +217,17 @@ using (var scope = app.Services.CreateScope())
             await Task.Delay(TimeSpan.FromSeconds(5 * attempt));
         }
     }
+}
+
+// Provision the JetStream stream backing code.execute (idempotent; the Worker does the same).
+// Fail-fast: without NATS the submission pipeline cannot dispatch, so surface it at startup.
+using (var natsScope = app.Services.CreateScope())
+{
+    var bus = natsScope.ServiceProvider.GetRequiredService<IMessageBus>();
+    await bus.EnsureStreamAsync(
+        ApplicationConstants.Nats.ExecutionsStream,
+        new[] { ApplicationConstants.Nats.ExecutionsStreamSubject },
+        CancellationToken.None);
 }
 
 await app.RunAsync();

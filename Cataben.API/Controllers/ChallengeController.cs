@@ -17,8 +17,7 @@ namespace Cataben.API.Controllers
         IChallengeRepository challengeRepository,
         ISubmissionRepository submissionRepository,
         ICurrentUserService currentUser,
-        IMediator mediator,
-        ILogger<ChallengeController> logger
+        IMediator mediator
         ) : ControllerBase
     {
         [HttpGet]

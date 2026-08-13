@@ -81,8 +81,7 @@ namespace Cataben.Application.Handlers
 
     public class UpdateChallengeHandler(
             IChallengeRepository challengeRepository,
-            IUnitOfWork unitOfWork,
-            ILogger<UpdateChallengeHandler> logger
+            IUnitOfWork unitOfWork
         ) : IRequestHandler<UpdateChallengeCommand, ChallengeDto>
     {
         public async Task<ChallengeDto> Handle(UpdateChallengeCommand request, CancellationToken cancellationToken)

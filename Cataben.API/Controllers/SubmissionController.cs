@@ -15,13 +15,12 @@ namespace Cataben.API.Controllers
     public class SubmissionController(
         ISubmissionRepository submissionRepository,
         IMediator mediator,
-        ICurrentUserService currentUser,
-        ILogger<SubmissionController> logger
+        ICurrentUserService currentUser
         ) : ControllerBase
     {
         [HttpPost("submit/{challengeId}")]
         [EnableRateLimiting("Execution")]
-        [ProducesResponseType(typeof(SubmissionResultDto), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(SubmissionResultDto), StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -40,7 +39,10 @@ namespace Cataben.API.Controllers
             };
 
             var result = await mediator.Send(command);
-            return Ok(result);
+            // Async pipeline: the submission is queued (code.execute over JetStream); the Worker
+            // publishes code.result.{id}, which ExecutionResultReceiver consumes to finalize it.
+            // Clients poll GET /submission/{id} for the terminal state.
+            return Accepted(result);
         }
 
         [HttpGet("history")]

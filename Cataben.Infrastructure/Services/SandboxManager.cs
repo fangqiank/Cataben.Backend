@@ -116,9 +116,14 @@ namespace Cataben.Infrastructure.Services
                     };
                 }
 
-                // Convert parameters to string array
-                var args = new[] { JsonSerializer.Serialize(parameters) };
-                var result = entryPoint.Invoke(null, new object[] { args });
+                // Match the entry point's signature: parameterless Main() takes no args,
+                // Main(string[]) takes one string[]. Passing a string[] to Main() throws
+                // TargetParameterCountException.
+                var paramCount = entryPoint.GetParameters().Length;
+                object[] invokeArgs = paramCount == 0
+                    ? Array.Empty<object>()
+                    : new object[] { new[] { JsonSerializer.Serialize(parameters) } };
+                var result = entryPoint.Invoke(null, invokeArgs);
 
                 stopwatch.Stop();
                 var memoryAfter = GC.GetTotalMemory(true);

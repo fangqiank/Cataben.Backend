@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 namespace Cataben.Infrastructure.HealthChecks
 {
     public class SandboxHealthCheck(
-        ISandboxManager sandboxManager,
         ILogger<SandboxHealthCheck> logger
         ) : IHealthCheck
     {

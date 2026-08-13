@@ -13,9 +13,7 @@ namespace Cataben.API.Controllers
     [EnableRateLimiting("Default")]
     public class AchievementController(
         IAchievementService achievementService,
-        IUserRepository userRepository,
-        ICurrentUserService currentUser,
-        ILogger<AchievementController> logger
+        ICurrentUserService currentUser
         ) : ControllerBase
     {
         [HttpGet]

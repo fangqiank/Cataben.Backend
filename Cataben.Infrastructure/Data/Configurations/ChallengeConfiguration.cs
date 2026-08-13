@@ -61,6 +61,10 @@ namespace Cataben.Infrastructure.Data.Configurations
                 tc.Property(t => t.ExpectedOutput).IsRequired();
                 tc.Property(t => t.IsPublic).IsRequired();
                 tc.Property(t => t.Weight).IsRequired();
+                // Nullable so the migration can add the column to existing rows; the domain ctor
+                // defaults it to "exact" and every consumer applies `?? "exact"`, so a NULL read
+                // back from a pre-migration row behaves as exact (the prior hardcoded behavior).
+                tc.Property(t => t.ValidationType).HasMaxLength(50);
             });
 
             // Owns hidden tests as JSON

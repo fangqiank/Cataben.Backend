@@ -12,8 +12,6 @@ namespace Cataben.Application.Handlers
     public class ExecuteCodeHandler(
         ICodeExecutor codeExecutor,
         IChallengeRepository challengeRepository,
-        ISubmissionRepository submissionRepository,
-        IUserRepository userRepository,
         ICacheService cache,
         IDistributedTracing tracing,
         ILogger<ExecuteCodeHandler> logger

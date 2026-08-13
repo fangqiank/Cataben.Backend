@@ -16,8 +16,7 @@ namespace Cataben.API.Controllers
         IUserRepository userRepository,
         ISubmissionRepository submissionRepository,
         IXpTransactionRepository xpTransactionRepository,
-        ICurrentUserService currentUser,
-        ILogger<UserController> logger
+        ICurrentUserService currentUser
         ) : ControllerBase
     {
         [HttpGet("me")]

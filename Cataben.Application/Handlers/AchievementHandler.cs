@@ -7,9 +7,8 @@ namespace Cataben.Application.Handlers
 {
     public class AchievementHandler(
         IAchievementService achievementService,
-        IUserRepository userRepository,
-        ILogger<AchievementHandler> logger
-        ):  IRequestHandler<GetAchievementsQuery, 
+        IUserRepository userRepository
+        ):  IRequestHandler<GetAchievementsQuery,
             IEnumerable<AchievementDto>>,
             IRequestHandler<GetUserAchievementsQuery, IEnumerable<UserAchievementDto>>,
             IRequestHandler<GetAchievementProgressQuery, AchievementProgressDto?>

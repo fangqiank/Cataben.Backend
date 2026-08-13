@@ -26,7 +26,6 @@ namespace Cataben.Infrastructure.Extensions
             services.AddScoped<IAchievementService, AchievementService>();
             services.AddScoped<INotificationService, NotificationService>();
             services.AddScoped<IDistributedTracing, OpenTelemetryService>();
-            services.AddSingleton<IMessageBus, NatsMessageBus>();
             services.AddSingleton<ICacheService, RedisCacheService>();
 
             // Health Checks

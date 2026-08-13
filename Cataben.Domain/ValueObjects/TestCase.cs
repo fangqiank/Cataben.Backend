@@ -1,4 +1,4 @@
-﻿namespace Cataben.Domain.ValueObjects
+namespace Cataben.Domain.ValueObjects
 {
     public class TestCase()
     {
@@ -9,14 +9,18 @@
         public bool IsPublic { get; private set; } = true;
         public int Weight { get; private set; } = 1;
         public int Order { get; private set; }
+        // How this case's output is compared to ExpectedOutput: exact | contains | regex |
+        // json | loose | ai. Defaults to "exact" so existing seed data/callers are unchanged.
+        public string ValidationType { get; private set; } = "exact";
 
         public TestCase(
-            string name, 
-            string input, 
-            string expectedOutput, 
-            bool isPublic = true, 
-            int weight = 1, 
-            int order = 0): this()
+            string name,
+            string input,
+            string expectedOutput,
+            bool isPublic = true,
+            int weight = 1,
+            int order = 0,
+            string validationType = "exact") : this()
         {
             Name = name;
             Input = input;
@@ -24,25 +28,27 @@
             IsPublic = isPublic;
             Weight = weight;
             Order = order;
+            ValidationType = string.IsNullOrWhiteSpace(validationType) ? "exact" : validationType;
         }
     }
 
-    public class HiddenTest: TestCase
+    public class HiddenTest : TestCase
     {
-        public string ValidationType { get; private set; } = "exact";
         public int MinScore { get; private set; }
         public TimeSpan? MaxExecutionTime { get; private set; }
         public long? MaxMemoryUsage { get; private set; }
 
         public HiddenTest(
-            string name, 
-            string input, 
-            string expectedOutput, 
-            string validationType = "exact", 
+            string name,
+            string input,
+            string expectedOutput,
+            string validationType = "exact",
             int minScore = 100)
-            : base(name, input, expectedOutput, false)
+            // Hidden tests are always private. validationType now lives on the base
+            // class, so pass it through instead of shadowing it here (the old
+            // `new`/hide caused CS0108 and let base/derived disagree).
+            : base(name, input, expectedOutput, isPublic: false, validationType: validationType)
         {
-            ValidationType = validationType;
             MinScore = minScore;
         }
     }

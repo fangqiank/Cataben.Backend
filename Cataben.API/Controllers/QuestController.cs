@@ -12,8 +12,7 @@ namespace Cataben.API.Controllers
     [EnableRateLimiting("Default")]
     public class QuestController(
         IQuestService questService,
-        ICurrentUserService currentUser,
-        ILogger<QuestController> logger
+        ICurrentUserService currentUser
         ) : ControllerBase
     {
         [HttpGet("active")]

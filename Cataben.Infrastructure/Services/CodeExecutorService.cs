@@ -123,7 +123,7 @@ namespace Cataben.Infrastructure.Services
         {
             public bool Success { get; init; }
             public Assembly? Assembly { get; init; }
-            public IEnumerable<string>? Errors { get; init; }
+            public IEnumerable<string> Errors { get; init; } = [];
 
             public static CompilationResult Succeeded(Assembly assembly) => new()
             {

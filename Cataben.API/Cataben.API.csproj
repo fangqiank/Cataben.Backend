@@ -5,6 +5,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>389c95ca-d64c-4e45-a794-0fe6af6b4067</UserSecretsId>
+    <!-- NU1608 is expected and harmless: Microsoft.CodeAnalysis.Common + CSharp.Workspaces are
+         deliberately pinned to 5.6.0 (see the package comments below) so the EF migration
+         scaffolder doesn't hit a mixed-Roslyn TypeLoadException. Suppress rather than un-pin. -->
+    <NoWarn>NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -51,6 +55,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Cataben.Application\Cataben.Application.csproj" />
     <ProjectReference Include="..\Cataben.Infrastructure\Cataben.Infrastructure.csproj" />
+    <ProjectReference Include="..\Cataben.Shared\Cataben.Shared.csproj" />
   </ItemGroup>
 
 </Project>

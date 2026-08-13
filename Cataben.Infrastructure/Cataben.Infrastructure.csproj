@@ -13,6 +13,10 @@
     <!-- Persistence layer owns the DB provider: needed by AppDbContext (UseNpgsql) and the
          generated migrations (Npgsql.EntityFrameworkCore.PostgreSQL.Metadata). -->
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+    <!-- SeedData calls IConfigurationSection.Get<T>() (Admin:ExternalIds backfill) — provides the
+         ConfigurationBinder extension. Was transitive via Cataben.Worker's Hosting reference until
+         that unused project reference was removed; made explicit here. -->
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions" Version="10.0.10" />
     <PackageReference Include="StackExchange.Redis" Version="3.0.25" />
@@ -21,7 +25,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Cataben.Application\Cataben.Application.csproj" />
     <ProjectReference Include="..\Cataben.Domain\Cataben.Domain.csproj" />
-    <ProjectReference Include="..\Cataben.Worker\Cataben.Worker.csproj" />
   </ItemGroup>
 
 </Project>

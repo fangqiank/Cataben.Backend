@@ -13,8 +13,7 @@ namespace Cataben.API.Controllers
     [EnableRateLimiting("Default")]
     public class CodeController(
         IMediator mediator,
-        ICurrentUserService currentUser,
-        ILogger<CodeController> logger
+        ICurrentUserService currentUser
         ) : ControllerBase
     {
         [HttpPost("execute")]
