@@ -2,8 +2,6 @@ using System.Diagnostics;
 using Cataben.Application.Commands;
 using Cataben.Application.DTOs;
 using Cataben.Application.Exceptions;
-using Cataben.Application.Repositories;
-using Cataben.Application.Services;
 using MediatR;
 
 namespace Cataben.Application.Handlers

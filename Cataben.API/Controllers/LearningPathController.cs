@@ -1,7 +1,6 @@
 using Cataben.API.Services;
 using Cataben.Application.DTOs;
 using Cataben.Domain.Entities;
-using Cataben.Infrastructure.Repositories;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;

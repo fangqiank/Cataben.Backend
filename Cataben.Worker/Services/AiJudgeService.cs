@@ -159,7 +159,7 @@ public sealed class AiJudgeService(
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw; // parent execution cancelled — must propagate, not be swallowed as "AI failed"
+                throw; // parent execution canceled — must propagate, not be swallowed as "AI failed"
             }
             catch (OperationCanceledException)
             {

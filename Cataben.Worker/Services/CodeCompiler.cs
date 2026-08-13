@@ -14,15 +14,15 @@ namespace Cataben.Worker.Services
         public CodeCompiler(ILogger<CodeCompiler> logger)
         {
             _logger = logger;
-            _references = new List<PortableExecutableReference>();
-            _defaultUsings = new List<string>
-        {
-            "System",
-            "System.Linq",
-            "System.Collections.Generic",
-            "System.Text",
-            "System.Threading.Tasks"
-        };
+            _references = [];
+            _defaultUsings =
+            [
+                "System",
+                "System.Linq",
+                "System.Collections.Generic",
+                "System.Text",
+                "System.Threading.Tasks"
+            ];
 
             // Add common references
             AddReference(typeof(object));

@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using Cataben.Application.Repositories;
 using Microsoft.AspNetCore.Authentication;
 
 namespace Cataben.API.Services;

@@ -3,9 +3,7 @@ using Cataben.Shared.Constants;
 using Cataben.Shared.Messaging;
 using Cataben.Worker.HealthChecks;
 using Cataben.Worker.Services;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.Extensions.Logging;
 using NATS.Extensions.Microsoft.DependencyInjection;
 using System.Net.Http.Headers;
 

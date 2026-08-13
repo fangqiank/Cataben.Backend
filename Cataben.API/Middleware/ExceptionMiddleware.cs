@@ -1,5 +1,4 @@
 ﻿using Cataben.Application.Exceptions;
-using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 
 namespace Cataben.API.Middleware

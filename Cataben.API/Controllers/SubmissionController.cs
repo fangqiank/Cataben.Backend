@@ -1,6 +1,5 @@
 ﻿using Cataben.API.Services;
 using Cataben.Application.DTOs;
-using Cataben.Infrastructure.Repositories;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;

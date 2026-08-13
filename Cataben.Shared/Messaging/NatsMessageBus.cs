@@ -11,11 +11,9 @@ namespace Cataben.Shared.Messaging;
 /// (code.result.* — loss tolerable), JetStream durable pull consumer for the critical
 /// code.execute task-dispatch subject (survives Worker crash + NATS restart, at-least-once).
 /// </summary>
-public class NatsMessageBus : IMessageBus
+public class NatsMessageBus(INatsConnection connection, ILogger<NatsMessageBus> logger) : IMessageBus
 {
-    private readonly INatsConnection _nc;
-    private readonly INatsJSContext _js;
-    private readonly ILogger<NatsMessageBus> _logger;
+    private readonly INatsJSContext _js = new NatsJSContext(connection);
     private readonly ConcurrentDictionary<string, INatsJSStream> _streams = new();
     private readonly ConcurrentDictionary<string, string> _subjectToStream = new();
 
@@ -27,18 +25,11 @@ public class NatsMessageBus : IMessageBus
     /// </summary>
     private const int MaxRedeliveries = 5;
 
-    public NatsMessageBus(INatsConnection connection, ILogger<NatsMessageBus> logger)
-    {
-        _nc = connection;
-        _logger = logger;
-        _js = new NatsJSContext(connection);
-    }
-
     // ─── Core NATS ──────────────────────────────────────────────────────────────
 
     public async Task PublishAsync<T>(string subject, T message, CancellationToken ct = default)
     {
-        await _nc.PublishAsync(subject, message, cancellationToken: ct);
+        await connection.PublishAsync(subject, message, cancellationToken: ct);
     }
 
     public async Task SubscribeAsync<T>(
@@ -47,9 +38,9 @@ public class NatsMessageBus : IMessageBus
         Func<T, CancellationToken, Task> handler,
         CancellationToken ct)
     {
-        _logger.LogInformation("Subscribed (core) to {Subject} [queue={Queue}]", subject, queueGroup);
+        logger.LogInformation("Subscribed (core) to {Subject} [queue={Queue}]", subject, queueGroup);
 
-        await foreach (var msg in _nc.SubscribeAsync<T>(subject, queueGroup, cancellationToken: ct))
+        await foreach (var msg in connection.SubscribeAsync<T>(subject, queueGroup, cancellationToken: ct))
         {
             try
             {
@@ -57,7 +48,7 @@ public class NatsMessageBus : IMessageBus
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Core subscriber handler error on {Subject}", subject);
+                logger.LogError(ex, "Core subscriber handler error on {Subject}", subject);
             }
         }
     }
@@ -67,7 +58,7 @@ public class NatsMessageBus : IMessageBus
     public async Task PublishDurableAsync<T>(string subject, T message, CancellationToken ct = default)
     {
         var ack = await _js.PublishAsync(subject, message, cancellationToken: ct);
-        _logger.LogDebug("JetStream publish {Subject} -> stream {Stream}, seq {Seq}", subject, ack.Stream, ack.Seq);
+        logger.LogDebug("JetStream publish {Subject} -> stream {Stream}, seq {Seq}", subject, ack.Stream, ack.Seq);
     }
 
     public async Task EnsureStreamAsync(string name, string[] subjects, CancellationToken ct = default)
@@ -77,8 +68,8 @@ public class NatsMessageBus : IMessageBus
         INatsJSStream stream;
         try
         {
-            stream = await _js.CreateStreamAsync(new StreamConfig(name, subjects));
-            _logger.LogInformation("Created JetStream stream {Name} [{Subjects}]", name, string.Join(",", subjects));
+            stream = await _js.CreateStreamAsync(new StreamConfig(name, subjects), ct);
+            logger.LogInformation("Created JetStream stream {Name} [{Subjects}]", name, string.Join(",", subjects));
         }
         catch (NatsJSApiException)
         {
@@ -105,16 +96,16 @@ public class NatsMessageBus : IMessageBus
         // Shared durable name across all worker replicas → JetStream fans pull requests
         // out between them (horizontal scaling / load balancing).
         var consumer = await stream.CreateOrUpdateConsumerAsync(
-            new ConsumerConfig(durable) { FilterSubject = subject });
-        _logger.LogInformation("Subscribed (durable {Durable}) to {Subject}", durable, subject);
+            new ConsumerConfig(durable) { FilterSubject = subject }, ct);
+        logger.LogInformation("Subscribed (durable {Durable}) to {Subject}", durable, subject);
 
         // Best-effort ACK-terminate: a failure here (e.g. transient NATS disconnect) only means
         // NATS will redeliver, which is acceptable and logged. It must NOT throw out of the loop
         // and kill the consumer.
         async Task DropAsync(INatsJSMsg<T> m)
         {
-            try { await m.AckTerminateAsync(); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Ack-terminate failed; NATS may redeliver"); }
+            try { await m.AckTerminateAsync(cancellationToken: ct); }
+            catch (Exception ex) { logger.LogWarning(ex, "Ack-terminate failed; NATS may redeliver"); }
         }
 
         await foreach (var msg in consumer.ConsumeAsync<T>().WithCancellation(ct))
@@ -129,7 +120,7 @@ public class NatsMessageBus : IMessageBus
             // consumer had max_deliver=-1.)
             if (msg.Data is null)
             {
-                _logger.LogWarning(
+                logger.LogWarning(
                     "Durable {Subject}: null payload (seq {Seq}, {Size}B, {Deliveries}x); ACK-terminate to drop",
                     subject, seq, msg.Size, deliveries);
                 await DropAsync(msg);
@@ -139,7 +130,7 @@ public class NatsMessageBus : IMessageBus
             try
             {
                 await handler(msg.Data, ct);
-                await msg.AckAsync();           // success → remove from stream's pending
+                await msg.AckAsync(cancellationToken: ct);           // success → remove from stream's pending
             }
             catch (Exception ex)
             {
@@ -148,17 +139,17 @@ public class NatsMessageBus : IMessageBus
                     // Self-heal: a deterministically-failing message that keeps returning would
                     // otherwise NAK-loop forever. After enough retries, ACK-terminate so the
                     // consumer advances past the poison instead of stalling the whole queue.
-                    _logger.LogError(ex,
+                    logger.LogError(ex,
                         "Durable {Subject}: poison message seq {Seq} failed {Deliveries}x; ACK-terminate to advance",
                         subject, seq, deliveries);
                     await DropAsync(msg);
                 }
                 else
                 {
-                    _logger.LogError(ex,
+                    logger.LogError(ex,
                         "Durable handler error on {Subject} (seq {Seq}, {Deliveries}/{Max}); NAK for redelivery",
                         subject, seq, deliveries, MaxRedeliveries);
-                    await msg.NakAsync();       // transient failure → JetStream redelivers (at-least-once)
+                    await msg.NakAsync(cancellationToken: ct);       // transient failure → JetStream redelivers (at-least-once)
                 }
             }
         }
