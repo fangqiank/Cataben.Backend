@@ -1,5 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Reflection;
 using System.Text;
 
@@ -123,9 +124,10 @@ namespace Cataben.Worker.Services
 
                 memoryStream.Seek(0, SeekOrigin.Begin);
                 var assembly = Assembly.Load(memoryStream.ToArray());
+                var assemblyBytes = memoryStream.ToArray();
 
                 _logger.LogDebug("Compilation successful");
-                return CompilationResult.Succeeded(assembly);
+                return CompilationResult.Succeeded(assembly, assemblyBytes);
             }
             catch (Exception ex)
             {
@@ -149,11 +151,10 @@ namespace Cataben.Worker.Services
             // Add user code
             sb.AppendLine(userCode);
 
-            // If no Main method, wrap in a class
-            if (!userCode.Contains("static void Main") && !userCode.Contains("static Task Main"))
+            if (!HasEntryPoint(userCode))
             {
                 sb.AppendLine(@"
-                    class Program {
+                    class CatabenSandboxProgram {
                         static void Main() {
                             try {
                                 // User's code should provide a method called Execute
@@ -168,20 +169,38 @@ namespace Cataben.Worker.Services
 
             return sb.ToString();
         }
+
+        private static bool HasEntryPoint(string userCode)
+        {
+            var tree = CSharpSyntaxTree.ParseText(
+                userCode,
+                new CSharpParseOptions(LanguageVersion.Latest));
+            var root = tree.GetRoot();
+
+            if (root.ChildNodes().OfType<GlobalStatementSyntax>().Any())
+                return true;
+
+            return root.DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Any(m => m.Identifier.ValueText == "Main"
+                    && m.Modifiers.Any(SyntaxKind.StaticKeyword));
+        }
     }
 
     public class CompilationResult
     {
         public bool Success { get; private set; }
         public Assembly? Assembly { get; private set; }
+        public byte[]? AssemblyBytes { get; private set; }
         public IEnumerable<string>? Errors { get; private set; }
 
-        public static CompilationResult Succeeded(Assembly assembly)
+        public static CompilationResult Succeeded(Assembly assembly, byte[] assemblyBytes)
         {
             return new CompilationResult
             {
                 Success = true,
-                Assembly = assembly
+                Assembly = assembly,
+                AssemblyBytes = assemblyBytes
             };
         }
 

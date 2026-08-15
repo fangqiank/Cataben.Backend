@@ -7,9 +7,9 @@ using NATS.Client.JetStream.Models;
 namespace Cataben.Shared.Messaging;
 
 /// <summary>
-/// NATS.Net-backed <see cref="IMessageBus"/>. Core NATS for fire-and-forget subjects
-/// (code.result.* — loss tolerable), JetStream durable pull consumer for the critical
-/// code.execute task-dispatch subject (survives Worker crash + NATS restart, at-least-once).
+/// NATS.Net-backed <see cref="IMessageBus"/>. Core NATS for fire-and-forget subjects such as
+/// health checks; JetStream durable consumers for both the code.execute task-dispatch subject and
+/// code.result.* so submission results survive Worker/API restart and are redelivered on failure.
 /// </summary>
 public class NatsMessageBus(INatsConnection connection, ILogger<NatsMessageBus> logger) : IMessageBus
 {

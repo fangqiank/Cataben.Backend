@@ -16,6 +16,8 @@ namespace Cataben.API.Controllers
         IUserRepository userRepository,
         ISubmissionRepository submissionRepository,
         IXpTransactionRepository xpTransactionRepository,
+        IChallengeRepository challengeRepository,
+        ILearningPathRepository learningPathRepository,
         ICurrentUserService currentUser
         ) : ControllerBase
     {
@@ -72,6 +74,8 @@ namespace Cataben.API.Controllers
                 .Where(s => s.IsSuccessful)
                 .GroupBy(s => s.Challenge?.Category ?? "Unknown")
                 .ToDictionary(g => g.Key, g => g.Count());
+            var totalChallenges = await challengeRepository.GetTotalChallengesAsync();
+            var learningPathsCompleted = (await learningPathRepository.GetUserCompletedPathsAsync(userId)).Count();
 
             return Ok(new UserStatisticsDto
             {
@@ -80,14 +84,14 @@ namespace Cataben.API.Controllers
                 Gems = user.Gems,
                 Submissions = submissions.Count(),
                 SolvedChallenges = solvedChallenges,
-                TotalChallenges = 0, // Would need to query total challenges
+                TotalChallenges = totalChallenges,
                 SuccessRate = submissions.Any()
                 ? (double)submissions.Count(s => s.IsSuccessful) / submissions.Count() * 100
                 : 0,
                 CurrentStreak = CalculateStreak(submissions),
                 MaxStreak = CalculateMaxStreak(submissions),
                 Achievements = user.UserAchievements.Count(a => a.IsCompleted),
-                LearningPathsCompleted = 0, // Would need to query learning paths
+                LearningPathsCompleted = learningPathsCompleted,
                 CategoryStats = categoryStats
             });
         }
@@ -182,10 +186,11 @@ namespace Cataben.API.Controllers
             if (period.Equals("all", StringComparison.OrdinalIgnoreCase))
             {
                 var topUsers = await userRepository.GetTopUsersByXpAsync(limit);
+                var solvedCounts = await submissionRepository.GetSolvedCountsAsync(
+                    topUsers.Select(u => u.Id));
                 var rank = 1;
                 foreach (var user in topUsers)
                 {
-                    var submissions = await submissionRepository.GetUserSubmissionsAsync(user.Id, 1, 1000);
                     leaderboard.Add(new LeaderboardDto
                     {
                         Id = user.Id.ToString(),
@@ -194,7 +199,7 @@ namespace Cataben.API.Controllers
                         Score = user.Xp,
                         Xp = user.Xp,
                         Level = user.CalculateLevel(),
-                        SolvedChallenges = submissions.Count(s => s.IsSuccessful),
+                        SolvedChallenges = solvedCounts.GetValueOrDefault(user.Id),
                         Achievements = user.UserAchievements.Count(a => a.IsCompleted),
                         AvatarUrl = user.AvatarUrl,
                         LastActiveAt = user.LastActiveAt

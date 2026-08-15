@@ -1,4 +1,5 @@
 using Cataben.Application.DTOs;
+using Cataben.Shared.Execution;
 using Cataben.Domain.Enums;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -14,17 +15,7 @@ namespace Cataben.Infrastructure.Services
         ILogger<CodeExecutorService> logger)
         : ICodeExecutor
     {
-        private readonly List<PortableExecutableReference> _references = new()
-        {
-            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Data.DataTable).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Net.WebClient).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Threading.Tasks.Task).Assembly.Location),
-            MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
-        };
+        private readonly List<PortableExecutableReference> _references = BuildCodeReferences();
 
         public async Task<ExecutionResultDto> ExecuteAsync(
             string code,
@@ -49,7 +40,7 @@ namespace Cataben.Infrastructure.Services
 
                 // 2. Execute in sandbox
                 var executionResult = await sandboxManager.ExecuteInSandboxAsync(
-                    compilationResult.Assembly!,
+                    compilationResult.AssemblyBytes!,
                     parameters,
                     options,
                     cancellationToken);
@@ -115,20 +106,23 @@ namespace Cataben.Infrastructure.Services
 
             memoryStream.Seek(0, SeekOrigin.Begin);
             var assembly = Assembly.Load(memoryStream.ToArray());
+            var assemblyBytes = memoryStream.ToArray();
 
-            return CompilationResult.Succeeded(assembly);
+            return CompilationResult.Succeeded(assembly, assemblyBytes);
         }
 
         private record CompilationResult
         {
             public bool Success { get; init; }
             public Assembly? Assembly { get; init; }
+            public byte[]? AssemblyBytes { get; init; }
             public IEnumerable<string> Errors { get; init; } = [];
 
-            public static CompilationResult Succeeded(Assembly assembly) => new()
+            public static CompilationResult Succeeded(Assembly assembly, byte[] assemblyBytes) => new()
             {
                 Success = true,
-                Assembly = assembly
+                Assembly = assembly,
+                AssemblyBytes = assemblyBytes
             };
 
             public static CompilationResult Failed(IEnumerable<string> errors) => new()
@@ -136,6 +130,34 @@ namespace Cataben.Infrastructure.Services
                 Success = false,
                 Errors = errors
             };
+        }
+
+        private static List<PortableExecutableReference> BuildCodeReferences()
+        {
+            var references = new List<PortableExecutableReference>
+            {
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Enumerable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Data.DataTable).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Text.Json.JsonSerializer).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Net.WebClient).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Threading.Tasks.Task).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(System.Collections.Generic.List<>).Assembly.Location),
+            };
+
+            try
+            {
+                var facade = Assembly.Load("System.Runtime");
+                if (!string.IsNullOrEmpty(facade.Location) && File.Exists(facade.Location))
+                    references.Add(MetadataReference.CreateFromFile(facade.Location));
+            }
+            catch
+            {
+                // Compilation will fail clearly if System.Runtime is unavailable.
+            }
+
+            return references;
         }
 
     }

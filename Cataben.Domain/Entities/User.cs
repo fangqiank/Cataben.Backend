@@ -76,6 +76,15 @@ namespace Cataben.Domain.Entities
             LastActiveAt = DateTime.UtcNow;
         }
 
+        public void UpdateProfile(string email, string username)
+        {
+            if (!string.IsNullOrWhiteSpace(email))
+                Email = email;
+
+            if (!string.IsNullOrWhiteSpace(username))
+                Username = username;
+        }
+
         public void UpdateRole(UserRole role)
         {
             Role = role;

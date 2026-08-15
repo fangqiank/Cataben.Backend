@@ -42,6 +42,7 @@ public class SubmissionCompletionService(
         if (!submission.IsSuccess())
             return;
 
+        await userRepository.LockByIdAsync(submission.UserId, cancellationToken);
         var user = await userRepository.GetByIdAsync(submission.UserId, cancellationToken);
         if (user == null)
         {
@@ -49,13 +50,20 @@ public class SubmissionCompletionService(
             return;
         }
 
-        user.AddXp(challenge.XpReward);
-        user.AddGems(challenge.GemReward);
-        await xpTransactionRepository.AddAsync(
-            new XpTransaction(user.Id, challenge.XpReward, XpSource.Challenge, challenge.Id.ToString()),
+        var alreadyRewarded = await xpTransactionRepository.ExistsAsync(
+            user.Id,
+            XpSource.Challenge,
+            challenge.Id.ToString(),
             cancellationToken);
-        await userRepository.UpdateAsync(user);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (!alreadyRewarded)
+        {
+            user.AddXp(challenge.XpReward);
+            user.AddGems(challenge.GemReward);
+            await xpTransactionRepository.AddAsync(
+                new XpTransaction(user.Id, challenge.XpReward, XpSource.Challenge, challenge.Id.ToString()),
+                cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
 
         var trigger = new AchievementTrigger
         {
@@ -67,9 +75,8 @@ public class SubmissionCompletionService(
             ExecutionTimeMs = (int)submission.ExecutionTimeMs
         };
 
-        var unlocked = await achievementService.CheckAndUnlockAchievementsAsync(user.Id, trigger, cancellationToken);
-        if (unlocked.Any())
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+        await achievementService.CheckAndUnlockAchievementsAsync(user.Id, trigger, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
 
         await notificationService.SendChallengeCompletedNotificationAsync(user.Id, MapToSubmissionDto(submission));
     }

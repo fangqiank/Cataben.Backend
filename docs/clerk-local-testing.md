@@ -22,24 +22,39 @@ dotnet run --project Cataben.API          # Development, http://localhost:5277
 3. 同页复制 **Secret key**（`sk_test_...`）—— 仅「脚本签发测试 token」需要；**后端校验 token 只用公钥，不需要它**。
 4. **Users → Add user**，建一个测试用户（邮箱 + 密码），记下其 Clerk user id（形如 `user_2xxx`）。
 
-## 第二步：把 Issuer 写入 user-secrets（不进仓库）
+## 第二步：把 Issuer + WebhookSecret 写入 user-secrets（不进仓库）
 
 `Cataben.API` 已初始化 `UserSecretsId`（Development 下由默认配置自动加载）：
 
 ```bash
 dotnet user-secrets set "Clerk:Issuer" "https://abc123-xx.clerk.accounts.dev" --project Cataben.API
+dotnet user-secrets set "Clerk:WebhookSecret" "whsec_..." --project Cataben.API
 ```
+
+- **Issuer**：Clerk Dashboard → API Keys。
+- **WebhookSecret**：Clerk Dashboard → Webhooks → 你的端点 → Signing Secret（`whsec_...`）。
+  缺失时 API 启动会警告（Development）/拒绝启动（Production）——webhook 是唯一创建 User 行的途径，
+  secret 不对则所有 `user.created` 都 401，新用户全平台 404。
 
 重启 API 使其生效。
 
 ## 第三步：让该 Clerk 用户在本系统 DB 中存在（关键，否则 404）
 
-生产中 Clerk 触发 `user.created` webhook 创建用户；本地收不到 webhook，手动 POST 同一端点：
+生产中 Clerk 触发 `user.created` webhook 创建用户；本地收不到 webhook，手动 POST 同一端点。
+**该端点校验 Svix 签名**（`ClerkWebhookVerifier`），裸 POST 会 401 —— 用下面脚本按同一 secret 签名：
 
-```bash
-curl -X POST http://localhost:5277/api/auth/webhook/clerk \
-  -H "Content-Type: application/json" \
-  -d '{"type":"user.created","data":{"id":"user_2xxx","username":"alice","emailAddresses":[{"emailAddress":"alice@example.com"}]}}'
+```powershell
+$secret = "whsec_..."   # 与 user-secrets 的 Clerk:WebhookSecret 相同
+$body   = '{"type":"user.created","data":{"id":"user_2xxx","username":"alice","emailAddresses":[{"emailAddress":"alice@example.com"}]}}'
+$id     = "msg_test_1"
+$ts     = [string][DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$key    = [Convert]::FromBase64String(($secret -replace '^whsec_',''))
+$sig    = [Convert]::ToBase64String([Security.Cryptography.HMACSHA256]::new($key)
+           .ComputeHash([Text.Encoding]::UTF8.GetBytes("$id.$ts.$body")))
+curl.exe -X POST http://localhost:5277/api/auth/webhook/clerk `
+  -H "Content-Type: application/json" `
+  -H "svix-id: $id" -H "svix-timestamp: $ts" -H "svix-signature: v1,$sig" `
+  -d $body
 ```
 
 ## 第四步：获取真实 session JWT

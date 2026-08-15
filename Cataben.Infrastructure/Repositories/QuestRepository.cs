@@ -53,6 +53,15 @@ namespace Cataben.Infrastructure.Repositories
                 .FirstOrDefaultAsync(uq => uq.Id == userQuestId, cancellationToken);
         }
 
+        public async Task<UserQuest?> GetByIdNoTrackingAsync(Guid userQuestId, CancellationToken cancellationToken = default)
+        {
+            return await context.UserQuests
+                .AsNoTracking()
+                .Include(uq => uq.Quest)
+                .Include(uq => uq.User)
+                .FirstOrDefaultAsync(uq => uq.Id == userQuestId, cancellationToken);
+        }
+
         public async Task<IEnumerable<UserQuest>> GetByUserAsync(Guid userId, CancellationToken cancellationToken = default)
         {
             return await context.UserQuests
@@ -70,6 +79,26 @@ namespace Cataben.Infrastructure.Repositories
         {
             context.UserQuests.Update(userQuest);
             return Task.CompletedTask;
+        }
+
+        public async Task<bool> TryClaimAsync(
+            Guid userQuestId,
+            Guid userId,
+            DateTime claimedAt,
+            CancellationToken cancellationToken = default)
+        {
+            var updated = await context.UserQuests
+                .Where(uq => uq.Id == userQuestId
+                    && uq.UserId == userId
+                    && uq.IsCompleted
+                    && !uq.IsClaimed)
+                .ExecuteUpdateAsync(
+                    setters => setters
+                        .SetProperty(uq => uq.IsClaimed, true)
+                        .SetProperty(uq => uq.ClaimedAt, claimedAt),
+                    cancellationToken);
+
+            return updated > 0;
         }
     }
 }

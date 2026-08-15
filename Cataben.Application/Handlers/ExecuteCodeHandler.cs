@@ -29,12 +29,12 @@ namespace Cataben.Application.Handlers
                 Challenge? challenge = null;
                 if (request.ChallengeId.HasValue)
                 {
-                    challenge = await challengeRepository.GetByIdAsync(request.ChallengeId.Value, cancellationToken);
+                    challenge = await challengeRepository.GetPublicByIdAsync(request.ChallengeId.Value, cancellationToken);
                     if (challenge == null)
                         throw new NotFoundException("Challenge not found");
                 }
 
-                var cacheKey = GenerateCacheKey(request.Code, challenge);
+                var cacheKey = GenerateCacheKey(request.Code, challenge, request.Parameters);
                 if (!request.IsSubmission)
                 {
                     var cached = await cache.GetAsync<ExecutionResultDto>(cacheKey);
@@ -77,11 +77,15 @@ namespace Cataben.Application.Handlers
             }
         }
 
-        private string GenerateCacheKey(string code, Challenge? challenge)
+        private string GenerateCacheKey(string code, Challenge? challenge, Dictionary<string, object> parameters)
         {
+            // Parameters must be part of the key: the same code run with different stdin
+            // (e.g. Parameters["stdin"]) produces different output and must not hit each
+            // other's cache entries.
+            var parametersJson = System.Text.Json.JsonSerializer.Serialize(parameters);
             var codeHash = Convert.ToBase64String(
                 System.Security.Cryptography.SHA256.HashData(
-                    System.Text.Encoding.UTF8.GetBytes(code)));
+                    System.Text.Encoding.UTF8.GetBytes(code + "\n" + parametersJson)));
 
             return $"execution:{challenge?.Id}:{codeHash}";
         }

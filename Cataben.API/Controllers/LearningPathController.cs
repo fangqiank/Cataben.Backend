@@ -20,9 +20,9 @@ namespace Cataben.API.Controllers
     {
         [HttpGet]
         [ProducesResponseType(typeof(IEnumerable<LearningPathDto>), StatusCodes.Status200OK)]
-        public async Task<IActionResult> GetLearningPaths([FromQuery] bool onlyPublished = true)
+        public async Task<IActionResult> GetLearningPaths()
         {
-            var paths = await learningPathRepository.GetAllAsync(onlyPublished);
+            var paths = await learningPathRepository.GetAllAsync(onlyPublished: true);
 
             // 同详情端点：一次查询拿当前用户全部已解题 id，循环内与每路径的题集求交集算进度。
             // 匿名 / 无匹配用户 → 空 solved 集，进度为 0/false（与 GET /{id} 行为一致）。
@@ -30,12 +30,13 @@ namespace Cataben.API.Controllers
             var solvedIds = userId is null
                 ? new HashSet<Guid>()
                 : (await submissionRepository.GetSolvedChallengeIdsAsync(userId.Value)).ToHashSet();
+            var challengeIdsByPath = await challengeRepository
+                .GetPublicChallengeIdsByLearningPathAsync(paths.Select(p => p.Id));
 
             var result = new List<LearningPathDto>();
             foreach (var path in paths)
             {
-                var challengeIds = (await challengeRepository.GetByLearningPathAsync(path.Id))
-                    .Select(c => c.Id)
+                var challengeIds = (challengeIdsByPath.TryGetValue(path.Id, out var ids) ? ids : new List<Guid>())
                     .ToHashSet();
                 var total = challengeIds.Count;
                 var completed = challengeIds.Count(id => solvedIds.Contains(id));
@@ -69,10 +70,10 @@ namespace Cataben.API.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetLearningPath(Guid id)
         {
-            var path = await learningPathRepository.GetByIdAsync(id);
+            var path = await learningPathRepository.GetPublishedByIdAsync(id);
             if (path == null) return NotFound();
 
-            var challenges = (await challengeRepository.GetByLearningPathAsync(id)).ToList();
+            var challenges = (await challengeRepository.GetPublicByLearningPathAsync(id)).ToList();
 
             // Real-time progress from the user's solved challenges — no need for a manual POST to create
             // a UserLearningPath row first. Anonymous / no matching user → empty solved set.
@@ -125,7 +126,7 @@ namespace Cataben.API.Controllers
             var resolvedUserId = await currentUser.GetUserIdAsync();
             if (resolvedUserId is null) return NotFound();
             var userId = resolvedUserId.Value;
-            var path = await learningPathRepository.GetByIdAsync(id);
+            var path = await learningPathRepository.GetPublishedByIdAsync(id);
             if (path == null) return NotFound();
 
             var progress = await learningPathRepository.GetUserProgressAsync(userId, id);

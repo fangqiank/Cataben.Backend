@@ -1,6 +1,7 @@
 ﻿using Cataben.Domain.Entities;
 using Cataben.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Cataben.Infrastructure.Repositories
 {
@@ -56,10 +57,61 @@ namespace Cataben.Infrastructure.Repositories
             await context.Users.AddAsync(user, cancellationToken);
         }
 
+        public Task AddXpAsync(Guid userId, int amount, CancellationToken cancellationToken = default)
+        {
+            return context.Users
+                .Where(u => u.Id == userId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(u => u.Xp, u => u.Xp + amount),
+                    cancellationToken);
+        }
+
+        public Task AddGemsAsync(Guid userId, int amount, CancellationToken cancellationToken = default)
+        {
+            return context.Users
+                .Where(u => u.Id == userId)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(u => u.Gems, u => u.Gems + amount),
+                    cancellationToken);
+        }
+
         public Task UpdateAsync(User user, CancellationToken cancellationToken = default)
         {
             context.Users.Update(user);
             return Task.CompletedTask;
+        }
+
+        public async Task LockByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var transaction = context.Database.CurrentTransaction
+                ?? throw new InvalidOperationException("Locking a user requires an active transaction.");
+            var connection = context.Database.GetDbConnection();
+            await connection.OpenAsync(cancellationToken);
+
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction.GetDbTransaction();
+            command.CommandText = "SELECT \"Id\" FROM \"Users\" WHERE \"Id\" = @id FOR UPDATE";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = id;
+            command.Parameters.Add(parameter);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        public async Task<int?> TryConsumeRevealAsync(Guid userId, CancellationToken cancellationToken = default)
+        {
+            var updated = await context.Users
+                .Where(u => u.Id == userId && u.RevealsRemaining > 0)
+                .ExecuteUpdateAsync(
+                    setters => setters.SetProperty(u => u.RevealsRemaining, u => u.RevealsRemaining - 1),
+                    cancellationToken);
+            if (updated == 0)
+                return null;
+
+            return await context.Users
+                .Where(u => u.Id == userId)
+                .Select(u => u.RevealsRemaining)
+                .SingleOrDefaultAsync(cancellationToken);
         }
 
         public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default)
@@ -74,6 +126,7 @@ namespace Cataben.Infrastructure.Repositories
         public async Task<IEnumerable<User>> GetTopUsersByXpAsync(int count, CancellationToken cancellationToken = default)
         {
             return await context.Users
+                .Include(u => u.UserAchievements)
                 .OrderByDescending(u => u.Xp)
                 .Take(count)
                 .ToListAsync(cancellationToken);

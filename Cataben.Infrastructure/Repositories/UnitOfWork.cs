@@ -1,37 +1,46 @@
-﻿using Cataben.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore.Storage;
+using Cataben.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cataben.Infrastructure.Repositories
 {
     public class UnitOfWork(AppDbContext context) : IUnitOfWork
     {
-        private IDbContextTransaction? _transaction;
-
         public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
             => await context.SaveChangesAsync(cancellationToken);
 
-        public async Task BeginTransactionAsync(CancellationToken cancellationToken = default)
-            => _transaction = await context.Database.BeginTransactionAsync(cancellationToken);
-
-        public async Task CommitTransactionAsync(CancellationToken cancellationToken = default)
+        public async Task ExecuteTransactionAsync(
+            Func<CancellationToken, Task> action,
+            CancellationToken cancellationToken = default)
         {
-            if (_transaction == null) return;
-            await _transaction.CommitAsync(cancellationToken);
-            await _transaction.DisposeAsync();
-            _transaction = null;
-        }
-
-        public async Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
-        {
-            if (_transaction == null) return;
-            await _transaction.RollbackAsync(cancellationToken);
-            await _transaction.DisposeAsync();
-            _transaction = null;
+            // The Npgsql connection enables EnableRetryOnFailure, and a retrying execution
+            // strategy rejects user-initiated transactions unless the whole transactional block
+            // runs inside ExecuteAsync — which is also what makes retries correct: a transient
+            // failure re-runs begin + action + commit on a fresh transaction, so the action
+            // must be idempotent (row locks + state re-checks at the call sites).
+            var strategy = context.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(
+                (context, action),
+                static async (ctx, state, ct) =>
+                {
+                    await using var transaction = await ctx.Database.BeginTransactionAsync(ct);
+                    try
+                    {
+                        await state.action(ct);
+                        await transaction.CommitAsync(ct);
+                        return true;
+                    }
+                    catch
+                    {
+                        await transaction.RollbackAsync(ct);
+                        throw;
+                    }
+                },
+                verifySucceeded: null,
+                cancellationToken: cancellationToken);
         }
 
         public void Dispose()
         {
-            _transaction?.Dispose();
             context.Dispose();
         }
     }

@@ -5,6 +5,8 @@ namespace Cataben.Application.Repositories
     public interface IUserRepository
     {
         Task AddAsync(User user, CancellationToken cancellationToken = default);
+        Task AddGemsAsync(Guid userId, int amount, CancellationToken cancellationToken = default);
+        Task AddXpAsync(Guid userId, int amount, CancellationToken cancellationToken = default);
         Task DeleteAsync(Guid id, CancellationToken cancellationToken = default);
         Task<IEnumerable<User>> GetAllAsync(int page = 1, int pageSize = 50, CancellationToken cancellationToken = default);
         Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
@@ -13,8 +15,10 @@ namespace Cataben.Application.Repositories
         Task<User?> GetByIdBasicAsync(Guid id, CancellationToken cancellationToken = default);
         Task<IEnumerable<User>> GetTopUsersByXpAsync(int count, CancellationToken cancellationToken = default);
         Task<int> GetTotalCountAsync(CancellationToken cancellationToken = default);
+        Task LockByIdAsync(Guid id, CancellationToken cancellationToken = default);
         Task<UserAchievementStats> GetUserAchievementStatsAsync(Guid userId, CancellationToken cancellationToken = default);
         Task<IEnumerable<UserAchievement>> GetUserCompletedAchievementsAsync(Guid userId, CancellationToken cancellationToken = default);
+        Task<int?> TryConsumeRevealAsync(Guid userId, CancellationToken cancellationToken = default);
         Task<int> GetUserRankAsync(Guid userId, CancellationToken cancellationToken = default);
         Task<int> GetCompletedAchievementCountAsync(Guid userId, CancellationToken cancellationToken = default);
         Task UpdateAsync(User user, CancellationToken cancellationToken = default);

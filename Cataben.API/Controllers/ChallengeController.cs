@@ -30,9 +30,15 @@ namespace Cataben.API.Controllers
             var userId = await currentUser.GetUserIdAsync() ?? Guid.Empty;
             // Fetch the user's solved challenge ids once (avoids an N+1 query per challenge).
             var solvedIds = (await submissionRepository.GetSolvedChallengeIdsAsync(userId)).ToHashSet();
-            var challenges = await challengeRepository.GetAllAsync(null, category, page, pageSize);
+            var challenges = await challengeRepository.GetAllPublicAsync(null, category, page, pageSize);
+            var stats = await submissionRepository.GetChallengeStatsAsync(challenges.Select(c => c.Id));
 
-            var challengeDtos = challenges.Select(c => MapChallenge(c, solvedIds.Contains(c.Id))).ToList();
+            var challengeDtos = challenges
+                .Select(c => MapChallenge(
+                    c,
+                    solvedIds.Contains(c.Id),
+                    stats.GetValueOrDefault(c.Id)))
+                .ToList();
             return Ok(challengeDtos);
         }
 
@@ -53,11 +59,12 @@ namespace Cataben.API.Controllers
 
             var userId = await currentUser.GetUserIdAsync() ?? Guid.Empty;
             var isSolved = await submissionRepository.GetUserSubmissionForChallenge(userId, challenge.Id) > 0;
+            var stats = await submissionRepository.GetChallengeStatsAsync(new[] { challenge.Id });
 
             return Ok(new DailyChallengeDto
             {
                 Date = today,
-                Challenge = MapChallenge(challenge, isSolved)
+                Challenge = MapChallenge(challenge, isSolved, stats.GetValueOrDefault(challenge.Id))
             });
         }
 
@@ -67,14 +74,15 @@ namespace Cataben.API.Controllers
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         public async Task<IActionResult> GetChallenge(Guid id)
         {
-            var challenge = await challengeRepository.GetByIdAsync(id);
+            var challenge = await challengeRepository.GetPublicByIdAsync(id);
             if (challenge == null)
                 return NotFound();
 
             var userId = await currentUser.GetUserIdAsync() ?? Guid.Empty;
             var isSolved = await submissionRepository.GetUserSubmissionForChallenge(userId, id) > 0;
+            var stats = await submissionRepository.GetChallengeStatsAsync(new[] { id });
 
-            return Ok(MapChallenge(challenge, isSolved));
+            return Ok(MapChallenge(challenge, isSolved, stats.GetValueOrDefault(id)));
         }
 
         // Consumes one of the user's global reveal credits and returns the reference solution.
@@ -100,7 +108,10 @@ namespace Cataben.API.Controllers
         }
 
         /// <summary>Maps a Challenge entity to its DTO, exposing only public test cases.</summary>
-        private static ChallengeDto MapChallenge(Challenge challenge, bool isSolved)
+        private static ChallengeDto MapChallenge(
+            Challenge challenge,
+            bool isSolved,
+            ChallengeSubmissionStats? stats = null)
         {
             return new ChallengeDto
             {
@@ -116,8 +127,10 @@ namespace Cataben.API.Controllers
                 Hints = challenge.Hints.ToList(),
                 TimeLimitSeconds = challenge.TimeLimitSeconds,
                 MemoryLimitMb = challenge.MemoryLimitMb,
-                SuccessRate = 0,
-                TotalSubmissions = 0,
+                SuccessRate = stats is { TotalSubmissions: > 0 }
+                    ? (int)Math.Round((double)stats.SuccessfulSubmissions / stats.TotalSubmissions * 100)
+                    : 0,
+                TotalSubmissions = stats?.TotalSubmissions ?? 0,
                 IsSolved = isSolved,
                 TestCases = challenge.TestCases
                     .Where(t => t.IsPublic)

@@ -2,6 +2,7 @@
 using Cataben.Domain.Enums;
 using Cataben.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Cataben.Infrastructure.Repositories
 {
@@ -14,6 +15,23 @@ namespace Cataben.Infrastructure.Repositories
                 .Include(s => s.User)
                 .Include(s => s.Challenge)
                 .FirstOrDefaultAsync(s => s.Id == id, cancellationToken);
+        }
+
+        public async Task LockByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            var transaction = context.Database.CurrentTransaction
+                ?? throw new InvalidOperationException("Locking a submission requires an active transaction.");
+            var connection = context.Database.GetDbConnection();
+            await connection.OpenAsync(cancellationToken);
+
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction.GetDbTransaction();
+            command.CommandText = "SELECT \"Id\" FROM \"Submissions\" WHERE \"Id\" = @id FOR UPDATE";
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = "@id";
+            parameter.Value = id;
+            command.Parameters.Add(parameter);
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         public async Task<IEnumerable<Submission>> GetUserSubmissionsAsync(
@@ -38,6 +56,47 @@ namespace Cataben.Infrastructure.Repositories
             return await context.Submissions
                 .Where(s => s.UserId == userId && s.IsSuccessful && s.Status == SubmissionStatus.Completed)
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<Dictionary<Guid, int>> GetSolvedCountsAsync(
+            IEnumerable<Guid> userIds,
+            CancellationToken cancellationToken = default)
+        {
+            var ids = userIds.ToList();
+            if (ids.Count == 0)
+                return new Dictionary<Guid, int>();
+
+            return await context.Submissions
+                .Where(s => ids.Contains(s.UserId)
+                    && s.IsSuccessful
+                    && s.Status == SubmissionStatus.Completed)
+                .GroupBy(s => s.UserId)
+                .Select(g => new { UserId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.UserId, x => x.Count, cancellationToken);
+        }
+
+        public async Task<Dictionary<Guid, ChallengeSubmissionStats>> GetChallengeStatsAsync(
+            IEnumerable<Guid> challengeIds,
+            CancellationToken cancellationToken = default)
+        {
+            var ids = challengeIds.ToList();
+            if (ids.Count == 0)
+                return new Dictionary<Guid, ChallengeSubmissionStats>();
+
+            var rows = await context.Submissions
+                .Where(s => ids.Contains(s.ChallengeId))
+                .GroupBy(s => s.ChallengeId)
+                .Select(g => new
+                {
+                    ChallengeId = g.Key,
+                    Total = g.Count(),
+                    Successful = g.Count(s => s.IsSuccessful && s.Status == SubmissionStatus.Completed)
+                })
+                .ToListAsync(cancellationToken);
+
+            return rows.ToDictionary(
+                x => x.ChallengeId,
+                x => new ChallengeSubmissionStats(x.Total, x.Successful));
         }
 
         public async Task<int> GetUserSubmissionForChallenge(
@@ -204,5 +263,4 @@ namespace Cataben.Infrastructure.Repositories
                 .ToListAsync(cancellationToken);
         }
     }
-}   
-    
+}

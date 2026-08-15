@@ -13,6 +13,18 @@ namespace Cataben.Infrastructure.Repositories
             await context.XpTransactions.AddAsync(tx, cancellationToken);
         }
 
+        public async Task<bool> ExistsAsync(
+            Guid userId,
+            XpSource source,
+            string? sourceId,
+            CancellationToken cancellationToken = default)
+        {
+            return await context.XpTransactions
+                .AnyAsync(
+                    t => t.UserId == userId && t.Source == source && t.SourceId == sourceId,
+                    cancellationToken);
+        }
+
         public async Task<IEnumerable<LeaderboardPeriodEntry>> GetLeaderboardInPeriodAsync(
             DateTime since, int count, CancellationToken cancellationToken = default)
         {

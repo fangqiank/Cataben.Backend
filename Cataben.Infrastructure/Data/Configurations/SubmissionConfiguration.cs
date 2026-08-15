@@ -18,6 +18,10 @@ namespace Cataben.Infrastructure.Data.Configurations
             builder.HasIndex(s => s.ChallengeId);
             builder.HasIndex(s => s.Status);
             builder.HasIndex(s => new { s.UserId, s.ChallengeId });
+            builder.HasIndex(s => new { s.UserId, s.ChallengeId })
+                .HasDatabaseName("IX_Submissions_UserId_ChallengeId_Successful")
+                .IsUnique()
+                .HasFilter("\"IsSuccessful\" = true AND \"Status\" = 4");
             builder.HasIndex(s => s.SubmittedAt);
 
             builder.Property(s => s.Code)

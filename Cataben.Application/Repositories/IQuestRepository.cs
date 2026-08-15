@@ -22,9 +22,19 @@ namespace Cataben.Application.Repositories
         /// <summary>A single UserQuest by id (Include Quest + User).</summary>
         Task<UserQuest?> GetByIdAsync(Guid userQuestId, CancellationToken cancellationToken = default);
 
+        /// <summary>A single UserQuest by id without change tracking, for race-safe claim validation.</summary>
+        Task<UserQuest?> GetByIdNoTrackingAsync(Guid userQuestId, CancellationToken cancellationToken = default);
+
         Task<IEnumerable<UserQuest>> GetByUserAsync(Guid userId, CancellationToken cancellationToken = default);
 
         Task AddAsync(UserQuest userQuest, CancellationToken cancellationToken = default);
+
+        /// <summary>Atomically claims a completed, unclaimed quest. Returns false when already claimed or invalid.</summary>
+        Task<bool> TryClaimAsync(
+            Guid userQuestId,
+            Guid userId,
+            DateTime claimedAt,
+            CancellationToken cancellationToken = default);
 
         Task UpdateAsync(UserQuest userQuest, CancellationToken cancellationToken = default);
     }

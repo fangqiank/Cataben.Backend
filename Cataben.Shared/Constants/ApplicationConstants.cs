@@ -33,13 +33,14 @@
         /// </summary>
         public static class Nats
         {
-            // Core NATS queue groups
-            public const string ResultQueueGroup = "cataben-results";   // API ResultReceiver(s) share code.result.>
-
-            // JetStream (code.execute persistence)
+            // JetStream streams
             public const string ExecutionsStream = "EXECUTIONS";
             public const string ExecutionsStreamSubject = "code.execute";
             public const string ExecutionsDurableConsumer = "executions-worker"; // shared by all worker replicas → load-balanced
+
+            public const string ResultsStream = "RESULTS";
+            public const string ResultsStreamSubject = "code.result.>";
+            public const string ResultsDurableConsumer = "results-api"; // shared by all API replicas
         }
 
         public static class RateLimits

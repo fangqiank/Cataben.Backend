@@ -76,9 +76,10 @@ public class TestResult
     public long MemoryUsedBytes { get; set; }
 }
 
-public class ExecutionResultMessage
-{
-    public string ExecutionId { get; set; } = string.Empty;
+    public class ExecutionResultMessage
+    {
+        public string ExecutionId { get; set; } = string.Empty;
+        public string? Signature { get; set; }
 
     // Correlation back to the originating submission/user/challenge so the API-side
     // result consumer can persist + run gamification without an extra lookup mapping.

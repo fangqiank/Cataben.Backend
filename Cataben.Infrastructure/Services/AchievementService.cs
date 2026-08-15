@@ -8,6 +8,7 @@ namespace Cataben.Infrastructure.Services
     public class AchievementService(
         IAchievementRepository achievementRepository,
         IUserRepository userRepository,
+        ISubmissionRepository submissionRepository,
         IXpTransactionRepository xpTransactionRepository,
         ICacheService cache,
         ILogger<AchievementService> logger)
@@ -41,19 +42,43 @@ namespace Cataben.Infrastructure.Services
 
                 foreach (var achievement in pendingAchievements)
                 {
-                    if (await CheckCondition(user, achievement, trigger, cancellationToken))
+                    var progress = await ComputeProgressAsync(user, achievement, trigger, cancellationToken);
+                    if (progress <= 0)
+                        continue;
+
+                    var existing = userAchievements.FirstOrDefault(ua => ua.AchievementId == achievement.Id);
+                    if (existing is null)
                     {
                         var userAchievement = new UserAchievement(user, achievement);
-                        userAchievement.Complete();
-
+                        userAchievement.UpdateProgress(progress);
                         await achievementRepository.AddUserAchievementAsync(userAchievement, cancellationToken);
-                        if (achievement.XpReward > 0)
+
+                        if (userAchievement.IsCompleted)
                         {
-                            await xpTransactionRepository.AddAsync(
-                                new XpTransaction(userId, achievement.XpReward, XpSource.Achievement, achievement.Id),
-                                cancellationToken);
+                            if (achievement.XpReward > 0)
+                            {
+                                await xpTransactionRepository.AddAsync(
+                                    new XpTransaction(userId, achievement.XpReward, XpSource.Achievement, achievement.Id),
+                                    cancellationToken);
+                            }
+                            unlocked.Add(userAchievement);
                         }
-                        unlocked.Add(userAchievement);
+                    }
+                    else if (!existing.IsCompleted)
+                    {
+                        existing.UpdateProgress(progress);
+                        await achievementRepository.UpdateUserAchievementAsync(existing, cancellationToken);
+
+                        if (existing.IsCompleted)
+                        {
+                            if (achievement.XpReward > 0)
+                            {
+                                await xpTransactionRepository.AddAsync(
+                                    new XpTransaction(userId, achievement.XpReward, XpSource.Achievement, achievement.Id),
+                                    cancellationToken);
+                            }
+                            unlocked.Add(existing);
+                        }
 
                         logger.LogInformation("User {UserId} unlocked achievement {AchievementId}", userId, achievement.Id);
                     }
@@ -68,7 +93,7 @@ namespace Cataben.Infrastructure.Services
             }
         }
 
-        private async Task<bool> CheckCondition(
+        private async Task<int> ComputeProgressAsync(
             User user,
             Achievement achievement,
             AchievementTrigger trigger,
@@ -76,32 +101,64 @@ namespace Cataben.Infrastructure.Services
         {
             return achievement.Type switch
             {
-                AchievementType.Count => trigger.Value >= achievement.RequiredProgress,
-                AchievementType.Streak => trigger.Value >= achievement.RequiredProgress,
-                AchievementType.Milestone => user.Xp >= achievement.RequiredProgress * 100,
-                AchievementType.Perfect => trigger.IsPerfect,
-                AchievementType.Unique => trigger.Value == 1,
-                _ => false
+                AchievementType.Count => await submissionRepository.GetUserSuccessfulCountAsync(user.Id, cancellationToken),
+                AchievementType.Streak => CalculateStreak(
+                    await submissionRepository.GetUserSubmissionDatesAsync(user.Id, cancellationToken)),
+                AchievementType.Milestone => user.Xp / 100,
+                AchievementType.Perfect => trigger.IsPerfect ? 1 : 0,
+                AchievementType.Unique => (await submissionRepository.GetSolvedChallengeIdsAsync(user.Id, cancellationToken)).Count(),
+                _ => 0
             };
+        }
+
+        private static int CalculateStreak(IEnumerable<DateTime> submissionDates)
+        {
+            var dates = submissionDates
+                .Select(d => d.Date)
+                .Distinct()
+                .OrderByDescending(d => d)
+                .ToList();
+
+            if (dates.Count == 0)
+                return 0;
+
+            var streak = 0;
+            var expectedDate = dates[0];
+            foreach (var date in dates)
+            {
+                if (date == expectedDate)
+                {
+                    streak++;
+                    expectedDate = expectedDate.AddDays(-1);
+                }
+                else if (date < expectedDate)
+                {
+                    break;
+                }
+            }
+
+            return streak;
         }
 
         public async Task<IEnumerable<AchievementDto>> GetAllAchievementsAsync(CancellationToken cancellationToken = default)
         {
             var all = await achievementRepository.GetAllAsync(cancellationToken);
-            return all.Select(a => new AchievementDto
-            {
-                Id = a.Id,
-                Name = a.Name,
-                Description = a.Description,
-                Category = a.Category,
-                Rarity = a.Rarity,
-                Icon = a.Icon,
-                BadgeColor = a.BadgeColor,
-                XpReward = a.XpReward,
-                GemReward = a.GemReward,
-                RequiredProgress = a.RequiredProgress,
-                IsHidden = a.IsHidden
-            });
+            return all
+                .Where(a => !a.IsHidden)
+                .Select(a => new AchievementDto
+                {
+                    Id = a.Id,
+                    Name = a.Name,
+                    Description = a.Description,
+                    Category = a.Category,
+                    Rarity = a.Rarity,
+                    Icon = a.Icon,
+                    BadgeColor = a.BadgeColor,
+                    XpReward = a.XpReward,
+                    GemReward = a.GemReward,
+                    RequiredProgress = a.RequiredProgress,
+                    IsHidden = a.IsHidden
+                });
         }
 
         public async Task<IEnumerable<UserAchievementDto>> GetUserAchievementsAsync(Guid userId, CancellationToken cancellationToken = default)

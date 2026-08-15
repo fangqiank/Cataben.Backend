@@ -1,9 +1,11 @@
-﻿using Cataben.API.Services;
+using Cataben.API.Services;
 using Cataben.Application.DTOs;
 using Cataben.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Text;
+using System.Text.Json;
 
 namespace Cataben.API.Controllers
 {
@@ -15,14 +17,30 @@ namespace Cataben.API.Controllers
         ISubmissionRepository submissionRepository,
         IUnitOfWork unitOfWork,
         ICurrentUserService currentUser,
+        IConfiguration configuration,
         ILogger<AuthController> logger
         ) : ControllerBase
     {
         [HttpPost("webhook/clerk")]
-        public async Task<IActionResult> ClerkWebhook([FromBody] ClerkWebhookPayload payload)
+        public async Task<IActionResult> ClerkWebhook()
         {
             try
             {
+                Request.EnableBuffering();
+                using var reader = new StreamReader(Request.Body, Encoding.UTF8, leaveOpen: true);
+                var rawBody = await reader.ReadToEndAsync();
+                Request.Body.Position = 0;
+
+                var secret = configuration["Clerk:WebhookSecret"] ?? string.Empty;
+                if (!ClerkWebhookVerifier.TryVerify(Request, rawBody, secret, out var signatureError))
+                    return Unauthorized(new { error = signatureError });
+
+                var payload = JsonSerializer.Deserialize<ClerkWebhookPayload>(
+                    rawBody,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                if (payload == null || string.IsNullOrWhiteSpace(payload.Data.Id))
+                    return BadRequest(new { error = "Invalid Clerk webhook payload" });
+
                 if (payload.Type == "user.created" || payload.Type == "user.updated")
                 {
                     var externalId = payload.Data.Id;
@@ -40,10 +58,14 @@ namespace Cataben.API.Controllers
                     }
                     else
                     {
-                        // Update user info if needed
+                        existingUser.UpdateProfile(email, username);
+                        await userRepository.UpdateAsync(existingUser);
                         await unitOfWork.SaveChangesAsync();
+
+                        logger.LogInformation("User updated from Clerk webhook: {UserId} ({Email})", existingUser.Id, email);
                     }
                 }
+
                 return Ok(new { success = true });
             }
             catch (Exception ex)
@@ -60,8 +82,7 @@ namespace Cataben.API.Controllers
             var resolvedUserId = await currentUser.GetUserIdAsync();
             if (resolvedUserId is null) return NotFound();
             var userId = resolvedUserId.Value;
-            // Use the basic projection (no Submissions/Achievements navigation loaded) and
-            // gather the aggregates via lightweight scalar queries instead.
+
             var user = await userRepository.GetByIdBasicAsync(userId);
             if (user == null)
                 return NotFound();

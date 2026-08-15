@@ -114,23 +114,47 @@ namespace Cataben.Infrastructure.Services
 
         public async Task<UserQuestDto?> ClaimRewardAsync(Guid userId, Guid userQuestId, CancellationToken cancellationToken = default)
         {
-            var row = await questRepository.GetByIdAsync(userQuestId, cancellationToken);
+            var row = await questRepository.GetByIdNoTrackingAsync(userQuestId, cancellationToken);
             if (row is null || row.UserId != userId)
                 return null; // not found, or not owned by this user
 
             if (!row.IsCompleted)
                 throw new ValidationException("Quest is not completed yet.");
 
-            var claimed = row.Claim(); // idempotent: awards XP/gems only when completed && !claimed
-            if (claimed && row.Quest.XpReward > 0)
-            {
-                await xpTransactionRepository.AddAsync(
-                    new XpTransaction(userId, row.Quest.XpReward, XpSource.Quest, row.Quest.Id),
-                    cancellationToken);
-            }
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (row.IsClaimed)
+                return ToDto(row, row.Quest, row.WindowStart);
 
-            return ToDto(row, row.Quest, row.WindowStart);
+            // Runs via the execution strategy (retried as a whole on transient failure — safe:
+            // the user row lock + TryClaimAsync's conditional UPDATE make the block re-runnable;
+            // a retry that loses the race simply claims nothing and returns current state).
+            await unitOfWork.ExecuteTransactionAsync(async ct =>
+            {
+                await userRepository.LockByIdAsync(userId, ct);
+                var user = await userRepository.GetByIdBasicAsync(userId, ct);
+                if (user is null)
+                    return;
+
+                var claimedAt = DateTime.UtcNow;
+                var claimed = await questRepository.TryClaimAsync(userQuestId, userId, claimedAt, ct);
+                if (!claimed)
+                    return; // lost the race (or already claimed) — nothing to persist
+
+                if (row.Quest.XpReward > 0)
+                {
+                    user.AddXp(row.Quest.XpReward);
+                    await xpTransactionRepository.AddAsync(
+                        new XpTransaction(userId, row.Quest.XpReward, XpSource.Quest, row.Quest.Id),
+                        ct);
+                }
+
+                if (row.Quest.GemReward > 0)
+                    user.AddGems(row.Quest.GemReward);
+
+                await unitOfWork.SaveChangesAsync(ct);
+            }, cancellationToken);
+
+            var latestRow = await questRepository.GetByIdNoTrackingAsync(userQuestId, cancellationToken);
+            return latestRow is null ? null : ToDto(latestRow, latestRow.Quest, latestRow.WindowStart);
         }
 
         private async Task<int> ComputeAbsoluteProgressAsync(

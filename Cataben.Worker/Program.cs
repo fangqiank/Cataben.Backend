@@ -1,4 +1,5 @@
 using Cataben.Application.Services;
+using Cataben.Shared.Execution;
 using Cataben.Shared.Constants;
 using Cataben.Shared.Messaging;
 using Cataben.Worker.HealthChecks;
@@ -26,12 +27,30 @@ builder.Services.AddNatsClient(nats => nats.ConfigureOptions(opts =>
     opts.Configure(o => o.Opts = o.Opts with { Url = natsUrl })));
 builder.Services.AddSingleton<IMessageBus, NatsMessageBus>();
 
+// Fail loudly on an unconfigured result-signing key: it HMAC-signs every execution result
+// published on code.result.{id}, and the API verifies with the SAME key. The value committed
+// in appsettings.json is a placeholder known to anyone who reads the repo, so production must
+// override it — a mismatch (or the placeholder) means the API silently drops every result.
+var resultSigningKey = builder.Configuration["Nats:ResultSigningKey"];
+if (string.IsNullOrWhiteSpace(resultSigningKey) ||
+    resultSigningKey.Equals(ExecutionResultSigner.PlaceholderKey, StringComparison.Ordinal))
+{
+    var remediation =
+        "Nats:ResultSigningKey is not configured (missing or still the placeholder). " +
+        "Every execution result this Worker publishes is HMAC-signed with it and the API verifies with the same key. " +
+        @"Fix:  dotnet user-secrets set ""Nats:ResultSigningKey"" ""<random secret>"" --project Cataben.Worker  (the SAME value must be set on Cataben.API)";
+    if (builder.Environment.IsProduction())
+        throw new InvalidOperationException(remediation);
+    Console.WriteLine($"[WARN] {remediation}  (continuing in Development — the API must use the SAME key or it drops this Worker's results)");
+}
+
 // Stateless execution primitives, consumed by the singleton ExecutionWorker hosted service →
 // must be singletons themselves (a singleton cannot consume scoped services; the strict DI
 // validator enforced in Development rejects it). None hold per-request or DbContext state:
 // CodeCompiler's references/usings are fixed at construction, SandboxExecutor/TestRunner are
 // pure, and ResourceMonitor's mutable fields are written only by the single monitor loop.
 builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ProcessCodeRunner>();
 builder.Services.AddSingleton<CodeCompiler>();
 builder.Services.AddSingleton<SandboxExecutor>();
 builder.Services.AddSingleton<TestRunner>();
@@ -102,6 +121,10 @@ using (var scope = host.Services.CreateScope())
     await bus.EnsureStreamAsync(
         ApplicationConstants.Nats.ExecutionsStream,
         new[] { ApplicationConstants.Nats.ExecutionsStreamSubject },
+        CancellationToken.None);
+    await bus.EnsureStreamAsync(
+        ApplicationConstants.Nats.ResultsStream,
+        new[] { ApplicationConstants.Nats.ResultsStreamSubject },
         CancellationToken.None);
 }
 

@@ -1,19 +1,18 @@
 using System.Collections.Concurrent;
+using Cataben.Shared.Execution;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-using System.Reflection;
-using System.Text;
-using System.Text.Json;
 
 namespace Cataben.Infrastructure.Services
 {
-    public class SandboxManager(ILogger<SandboxManager> logger) : ISandboxManager
+    public class SandboxManager(
+        ProcessCodeRunner processRunner,
+        ILogger<SandboxManager> logger) : ISandboxManager
     {
-        private readonly SemaphoreSlim _semaphore = new(10); // Max concurrent sandboxes
+        private readonly SemaphoreSlim _semaphore = new(10);
         private readonly ConcurrentDictionary<string, SandboxInstance> _activeSandboxes = new();
 
         public async Task<SandboxExecutionResult> ExecuteInSandboxAsync(
-            Assembly assembly,
+            byte[] assemblyBytes,
             Dictionary<string, object> parameters,
             ExecutionOptions options,
             CancellationToken cancellationToken)
@@ -25,7 +24,6 @@ namespace Cataben.Infrastructure.Services
             {
                 await _semaphore.WaitAsync(cancellationToken);
 
-                // Track the active sandbox.
                 sandbox = new SandboxInstance
                 {
                     Id = sandboxId,
@@ -33,29 +31,12 @@ namespace Cataben.Infrastructure.Services
                 };
                 _activeSandboxes[sandboxId] = sandbox;
 
-                // Enforce the configured timeout. NOTE: .NET has no AppDomains and cannot
-                // forcibly abort in-process CPU-bound code. We cancel the token (well-behaved
-                // code can observe it) AND race the execution against a delay so the caller
-                // is not blocked indefinitely. The rogue task, however, may keep running until
-                // it finishes on its own — a real process/container sandbox is required for a
-                // hard kill. (TODO: out-of-process isolation.)
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(options.Timeout);
-
-                var executionTask = Task.Run(() => ExecuteInIsolation(assembly, parameters, options), cts.Token);
-                var winner = await Task.WhenAny(executionTask, Task.Delay(options.Timeout, cancellationToken));
-
-                if (winner != executionTask)
-                {
-                    logger.LogWarning("Sandbox execution {SandboxId} exceeded timeout {TimeoutMs}ms", sandboxId, (long)options.Timeout.TotalMilliseconds);
-                    return new SandboxExecutionResult
-                    {
-                        Success = false,
-                        Error = $"Execution timed out after {options.Timeout.TotalSeconds:F0}s"
-                    };
-                }
-
-                var result = await executionTask;
+                var timeoutSeconds = Math.Max(1, (int)options.Timeout.TotalSeconds);
+                var result = await processRunner.RunAsync(
+                    assemblyBytes,
+                    stdin: ExtractStdin(parameters),
+                    timeoutSeconds,
+                    cancellationToken);
 
                 return new SandboxExecutionResult
                 {
@@ -63,8 +44,10 @@ namespace Cataben.Infrastructure.Services
                     Output = result.Output,
                     Error = result.Error,
                     ExecutionTimeMs = result.ExecutionTimeMs,
-                    MemoryAllocatedBytes = result.MemoryAllocatedBytes,
-                    QueryPlan = result.QueryPlan
+                    // Peak child working set — the closest honest memory metric the
+                    // out-of-process runner can observe. QueryPlan stays null: the in-process
+                    // runner has no SQL engine, so it never fabricates a plan.
+                    MemoryAllocatedBytes = result.PeakMemoryBytes
                 };
             }
             catch (Exception ex)
@@ -86,71 +69,21 @@ namespace Cataben.Infrastructure.Services
             }
         }
 
-        private IsolationResult ExecuteInIsolation(
-        Assembly assembly,
-        Dictionary<string, object> parameters,
-        ExecutionOptions options)
+        /// <summary>Pulls the run-code stdin from the request's Parameters dictionary.
+        /// Model binding deserializes JSON values to JsonElement, so both a plain string
+        /// and a boxed JsonElement(string) are accepted; anything else is ignored.</summary>
+        private static string? ExtractStdin(Dictionary<string, object> parameters)
         {
-            var output = new StringBuilder();
-            var error = new StringBuilder();
-            var originalOut = Console.Out;
-            var originalError = Console.Error;
+            if (!parameters.TryGetValue("stdin", out var value))
+                return null;
 
-            try
+            return value switch
             {
-                using var stringWriter = new StringWriter(output);
-                using var errorWriter = new StringWriter(error);
-                Console.SetOut(stringWriter);
-                Console.SetError(errorWriter);
-
-                var stopwatch = Stopwatch.StartNew();
-                var memoryBefore = GC.GetTotalMemory(true);
-
-                var entryPoint = assembly.EntryPoint;
-                if (entryPoint == null)
-                {
-                    return new IsolationResult
-                    {
-                        Success = false,
-                        Error = "No entry point found"
-                    };
-                }
-
-                // Match the entry point's signature: parameterless Main() takes no args,
-                // Main(string[]) takes one string[]. Passing a string[] to Main() throws
-                // TargetParameterCountException.
-                var paramCount = entryPoint.GetParameters().Length;
-                object[] invokeArgs = paramCount == 0
-                    ? Array.Empty<object>()
-                    : new object[] { new[] { JsonSerializer.Serialize(parameters) } };
-                var result = entryPoint.Invoke(null, invokeArgs);
-
-                stopwatch.Stop();
-                var memoryAfter = GC.GetTotalMemory(true);
-
-                return new IsolationResult
-                {
-                    Success = true,
-                    Output = output.ToString(),
-                    Error = error.ToString(),
-                    ExecutionTimeMs = stopwatch.ElapsedMilliseconds,
-                    MemoryAllocatedBytes = memoryAfter - memoryBefore
-                };
-            }
-            catch (Exception ex)
-            {
-                return new IsolationResult
-                {
-                    Success = false,
-                    Error = ex.Message,
-                    Output = output.ToString()
-                };
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-            }
+                string s => s,
+                System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } je
+                    => je.GetString(),
+                _ => null
+            };
         }
 
         private class SandboxInstance
@@ -158,16 +91,6 @@ namespace Cataben.Infrastructure.Services
             public string Id { get; set; } = string.Empty;
             public DateTime CreatedAt { get; set; }
             public bool IsActive { get; set; } = true;
-        }
-
-        private class IsolationResult
-        {
-            public bool Success { get; set; }
-            public string? Output { get; set; }
-            public string? Error { get; set; }
-            public long ExecutionTimeMs { get; set; }
-            public long MemoryAllocatedBytes { get; set; }
-            public string? QueryPlan { get; set; }
         }
     }
 

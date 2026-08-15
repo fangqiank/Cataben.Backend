@@ -24,6 +24,7 @@ namespace Cataben.Worker.Services
         private readonly IServiceProvider _serviceProvider;
         private readonly SemaphoreSlim _semaphore;
         private readonly int _maxConcurrentTasks;
+        private readonly string _resultSigningKey;
         private int _activeTasks;
 
         public ExecutionWorker(
@@ -45,6 +46,7 @@ namespace Cataben.Worker.Services
             _serviceProvider = serviceProvider;
 
             _maxConcurrentTasks = configuration.GetValue<int>("Worker:MaxConcurrentTasks", 10);
+            _resultSigningKey = configuration["Nats:ResultSigningKey"] ?? string.Empty;
             _semaphore = new SemaphoreSlim(_maxConcurrentTasks);
             _activeTasks = 0;
         }
@@ -156,7 +158,7 @@ namespace Cataben.Worker.Services
 
                 SingleRunResult? sharedRun = needSharedRun
                     ? await _sandboxExecutor.RunAsync(
-                        compilation.Assembly!, stdin: null, message.TimeoutSeconds, cancellationToken)
+                        compilation.AssemblyBytes!, stdin: null, message.TimeoutSeconds, cancellationToken)
                     : null;
                 var runCount = needSharedRun ? 1 : 0;
 
@@ -171,7 +173,7 @@ namespace Cataben.Worker.Services
                     {
                         cancellationToken.ThrowIfCancellationRequested();
                         perInputRuns[input] = await _sandboxExecutor.RunAsync(
-                            compilation.Assembly!, input, message.TimeoutSeconds, cancellationToken);
+                            compilation.AssemblyBytes!, input, message.TimeoutSeconds, cancellationToken);
                         runCount++;
                     }
                 }
@@ -256,7 +258,7 @@ namespace Cataben.Worker.Services
                 // 6. Cache (same executionId → same deterministic result)
                 _cache.Set(cacheKey, executionResult, TimeSpan.FromMinutes(5));
 
-                // 7. Publish result back to the API (Core NATS)
+                // 7. Publish result back to the API (JetStream durable)
                 await PublishResult(message, executionResult);
 
                 activity?.SetStatus(ActivityStatusCode.Ok);
@@ -266,20 +268,19 @@ namespace Cataben.Worker.Services
 
                 _logger.LogInformation("Execution {ExecutionId} completed successfully", message.ExecutionId);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
-                // Deterministic failure: report a SystemError result and ACK (by returning
-                // normally). We deliberately do NOT re-throw — re-throwing would NAK and
-                // redeliver a deterministic failure forever (poison loop). The durability
-                // guarantee for *transient* failures still holds: if the process dies
-                // mid-execution, no ACK is ever sent and JetStream redelivers elsewhere.
+                // Handled user-code/run failures are returned as ExecutionResult instead of throwing.
+                // Exceptions here are infrastructure/transient failures, so after best-effort
+                // reporting we re-throw to let JetStream NAK and redeliver.
                 _logger.LogError(ex, "Error processing execution {ExecutionId}", message.ExecutionId);
                 activity?.SetStatus(ActivityStatusCode.Error);
                 activity?.RecordException(ex);
 
-                // Reporting must never throw either: a failure inside this catch would escape,
-                // NAK the message, and redeliver this same deterministic failure forever — the
-                // exact poison loop we're preventing. So wrap the report and swallow its faults.
                 try
                 {
                     var errorResult = new ExecutionResult
@@ -296,10 +297,18 @@ namespace Cataben.Worker.Services
                 }
                 catch (Exception reportEx)
                 {
-                    _logger.LogError(reportEx,
-                        "Failed to report SystemError for execution {ExecutionId}; suppressing to avoid NAK",
+                    _logger.LogError(reportEx, "Failed to report SystemError for execution {ExecutionId}",
                         message.ExecutionId);
+                    // Nothing reached the API — NAK/redeliver is the at-least-once safety net.
+                    throw new InvalidOperationException(
+                        $"Execution failed and the result could not be published: {ex.Message}",
+                        reportEx);
                 }
+
+                // Terminal result published — return normally so the message is ACKed.
+                // Re-throwing here would NAK and make JetStream redeliver the SAME submission,
+                // re-running (compiling + executing) user code up to MaxRedeliveries times for
+                // a failure that is already recorded and will recur deterministically.
             }
             finally
             {
@@ -453,7 +462,8 @@ namespace Cataben.Worker.Services
                 }).ToList() ?? new()
             };
 
-            await _messageBus.PublishAsync(
+            resultMessage.Signature = ExecutionResultSigner.Sign(resultMessage, _resultSigningKey);
+            await _messageBus.PublishDurableAsync(
                 $"{ApplicationConstants.QueueNames.CodeResult}.{original.ExecutionId}",
                 resultMessage, CancellationToken.None);
         }

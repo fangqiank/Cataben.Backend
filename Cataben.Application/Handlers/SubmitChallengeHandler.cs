@@ -38,7 +38,7 @@ namespace Cataben.Application.Handlers
             if (user == null)
                 throw new NotFoundException("User not found");
 
-            var challenge = await challengeRepository.GetByIdAsync(request.ChallengeId, cancellationToken);
+            var challenge = await challengeRepository.GetPublicByIdAsync(request.ChallengeId, cancellationToken);
             if (challenge == null)
                 throw new NotFoundException("Challenge not found");
 

@@ -28,12 +28,29 @@ namespace Cataben.Infrastructure.Repositories
             }
         }
 
+        public async Task<LearningPath?> GetPublishedByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                return await context.LearningPaths
+                    .Include(lp => lp.Challenges)
+                        .ThenInclude(c => c.TestCases)
+                    .Include(lp => lp.Challenges)
+                        .ThenInclude(c => c.HiddenTests)
+                    .FirstOrDefaultAsync(lp => lp.Id == id && lp.IsPublished, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting published learning path by id {Id}", id);
+                throw;
+            }
+        }
+
         public async Task<IEnumerable<LearningPath>> GetAllAsync(bool onlyPublished = true, CancellationToken cancellationToken = default)
         {
             try
             {
                 var query = context.LearningPaths
-                    .Include(lp => lp.Challenges)
                     .AsQueryable();
 
                 if (onlyPublished)

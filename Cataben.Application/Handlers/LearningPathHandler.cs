@@ -20,7 +20,7 @@ namespace Cataben.Application.Handlers
             if (user == null)
                 throw new NotFoundException("User not found");
 
-            var path = await learningPathRepository.GetByIdAsync(request.LearningPathId, cancellationToken);
+            var path = await learningPathRepository.GetPublishedByIdAsync(request.LearningPathId, cancellationToken);
             if (path == null)
                 throw new NotFoundException("Learning path not found");
 
@@ -54,7 +54,7 @@ namespace Cataben.Application.Handlers
             if (user == null)
                 throw new NotFoundException("User not found");
 
-            var path = await learningPathRepository.GetByIdAsync(request.LearningPathId, cancellationToken);
+            var path = await learningPathRepository.GetPublishedByIdAsync(request.LearningPathId, cancellationToken);
             if (path == null)
                 throw new NotFoundException("Learning path not found");
 

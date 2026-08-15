@@ -33,6 +33,31 @@ namespace Cataben.Infrastructure.Repositories
                 .ToListAsync(cancellationToken);
         }
 
+        public async Task<IEnumerable<Challenge>> GetAllPublicAsync(
+            ChallengeType? type = null,
+            string? category = null,
+            int page = 1,
+            int pageSize = 50,
+            CancellationToken cancellationToken = default)
+        {
+            IQueryable<Challenge> query = context.Challenges.Where(c => c.IsActive);
+
+            if (type.HasValue) query = query.Where(c => c.Type == type.Value);
+            if (!string.IsNullOrEmpty(category)) query = query.Where(c => c.Category == category);
+
+            return await query
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<Challenge?> GetPublicByIdAsync(Guid id, CancellationToken cancellationToken = default)
+        {
+            return await context.Challenges
+                .Include(c => c.TestCases)
+                .FirstOrDefaultAsync(c => c.Id == id && c.IsActive, cancellationToken);
+        }
+
         public async Task<IEnumerable<Challenge>> GetByLearningPathAsync(
             Guid learningPathId,
             CancellationToken cancellationToken = default)
@@ -41,6 +66,36 @@ namespace Cataben.Infrastructure.Repositories
                 .Where(c => c.LearningPathId == learningPathId)
                 .OrderBy(c => c.OrderInPath)
                 .ToListAsync(cancellationToken);
+        }
+
+        public async Task<IEnumerable<Challenge>> GetPublicByLearningPathAsync(
+            Guid learningPathId,
+            CancellationToken cancellationToken = default)
+        {
+            return await context.Challenges
+                .Where(c => c.LearningPathId == learningPathId && c.IsActive)
+                .OrderBy(c => c.OrderInPath)
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<Dictionary<Guid, List<Guid>>> GetPublicChallengeIdsByLearningPathAsync(
+            IEnumerable<Guid> learningPathIds,
+            CancellationToken cancellationToken = default)
+        {
+            var pathIds = learningPathIds.ToList();
+            if (pathIds.Count == 0)
+                return new Dictionary<Guid, List<Guid>>();
+
+            var rows = await context.Challenges
+                .Where(c => c.IsActive
+                    && c.LearningPathId != null
+                    && pathIds.Contains(c.LearningPathId.Value))
+                .Select(c => new { ChallengeId = c.Id, PathId = c.LearningPathId!.Value })
+                .ToListAsync(cancellationToken);
+
+            return rows
+                .GroupBy(r => r.PathId)
+                .ToDictionary(g => g.Key, g => g.Select(r => r.ChallengeId).ToList());
         }
 
         public async Task<int> GetCountByCategoryAsync(
@@ -56,7 +111,7 @@ namespace Cataben.Infrastructure.Repositories
             CancellationToken cancellationToken = default)
         {
             return await context.Challenges
-                .Where(c => c.Category == category)
+                .Where(c => c.Category == category && c.IsActive)
                 .ToListAsync(cancellationToken);
         }
 
@@ -86,6 +141,7 @@ namespace Cataben.Infrastructure.Repositories
             CancellationToken cancellationToken = default)
         {
             var query = context.Challenges.AsQueryable();
+            query = query.Where(c => c.IsActive);
 
             if (!string.IsNullOrEmpty(category))
                 query = query.Where(c => c.Category == category);

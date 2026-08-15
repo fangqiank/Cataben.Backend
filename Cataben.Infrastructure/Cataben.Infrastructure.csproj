@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Cataben.Application\Cataben.Application.csproj" />
     <ProjectReference Include="..\Cataben.Domain\Cataben.Domain.csproj" />
+    <ProjectReference Include="..\Cataben.Shared\Cataben.Shared.csproj" />
   </ItemGroup>
 
 </Project>

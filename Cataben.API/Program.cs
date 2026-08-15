@@ -20,6 +20,7 @@ using Serilog.Events;
 using Cataben.API.BackgroundServices;
 using Cataben.Application.Services;
 using Cataben.Shared.Constants;
+using Cataben.Shared.Execution;
 using Cataben.Shared.Messaging;
 using NATS.Extensions.Microsoft.DependencyInjection;
 
@@ -33,6 +34,42 @@ builder.Configuration
     // explicit AddJsonFile calls above are appended later and would otherwise win.
     .AddUserSecrets<Program>(optional: true)
     .AddEnvironmentVariables();
+
+// Fail loudly on an unconfigured Clerk webhook secret BEFORE serving traffic. The Clerk
+// webhook (user.created) is the only thing that provisions User rows, so a missing secret
+// would silently 401 every webhook — new signups would get no User row and see 404s
+// platform-wide. appsettings.json ships the placeholder; the real whsec_... value belongs
+// in user-secrets or an env var (see docs/clerk-local-testing.md).
+var clerkWebhookSecret = builder.Configuration["Clerk:WebhookSecret"];
+if (string.IsNullOrWhiteSpace(clerkWebhookSecret) ||
+    clerkWebhookSecret.Equals(ClerkWebhookVerifier.PlaceholderSecret, StringComparison.OrdinalIgnoreCase))
+{
+    const string remediation =
+        "Clerk:WebhookSecret is not configured (missing or still the placeholder). " +
+        "Every Clerk webhook will be rejected with 401 and no User rows will be created for new signups. " +
+        @"Fix:  dotnet user-secrets set ""Clerk:WebhookSecret"" ""whsec_..."" --project Cataben.API";
+    if (builder.Environment.IsProduction())
+        throw new InvalidOperationException(remediation);
+    Console.WriteLine($"[WARN] {remediation}  (continuing in Development — the webhook endpoint will 401 until it is set)");
+}
+
+// Same fail-loud treatment for the Worker→API result signing key: the Worker HMAC-signs
+// every execution result and this host verifies it (ExecutionResultReceiver). The value
+// committed in appsettings.json is a placeholder known to anyone who reads the repo, so a
+// production deployment running on it accepts forged passing results (XP/gems/achievements)
+// from anyone who can reach NATS.
+var resultSigningKey = builder.Configuration["Nats:ResultSigningKey"];
+if (string.IsNullOrWhiteSpace(resultSigningKey) ||
+    resultSigningKey.Equals(ExecutionResultSigner.PlaceholderKey, StringComparison.Ordinal))
+{
+    const string remediation =
+        "Nats:ResultSigningKey is not configured (missing or still the placeholder). " +
+        "Execution results are HMAC-verified with this key; on the placeholder any NATS client can forge a passing result. " +
+        @"Fix:  dotnet user-secrets set ""Nats:ResultSigningKey"" ""<random secret>"" --project Cataben.API  (the SAME value must be set on Cataben.Worker)";
+    if (builder.Environment.IsProduction())
+        throw new InvalidOperationException(remediation);
+    Console.WriteLine($"[WARN] {remediation}  (continuing in Development — the Worker must use the SAME key or its results are dropped)");
+}
 
 builder.Host.UseSerilog((context, config) =>
 {
@@ -129,7 +166,7 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 
-// Real NATS: Core fire-and-forget for code.result.* + JetStream durable for code.execute.
+// Real NATS: JetStream durable for code.execute + signed code.result.* delivery.
 // AddNatsClient registers INatsConnection (singleton) bound to the "Nats" config section.
 var natsUrl = builder.Configuration["Nats:Url"] ?? "nats://localhost:4222";
 builder.Services.AddNatsClient(nats => nats.ConfigureOptions(opts =>
@@ -144,6 +181,7 @@ builder.Services.AddScoped<IQuestService, QuestService>();
 builder.Services.AddScoped<IRewardService, RewardService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<ICodeExecutor, CodeExecutorService>();
+builder.Services.AddSingleton<ProcessCodeRunner>();
 builder.Services.AddScoped<ISandboxManager, SandboxManager>();
 // Required by ExecuteCodeHandler / SubmitChallengeHandler (StartActivity). Was missing, which
 // broke DI activation of those handlers at runtime (and design-time DbContext creation).
@@ -227,6 +265,10 @@ using (var natsScope = app.Services.CreateScope())
     await bus.EnsureStreamAsync(
         ApplicationConstants.Nats.ExecutionsStream,
         new[] { ApplicationConstants.Nats.ExecutionsStreamSubject },
+        CancellationToken.None);
+    await bus.EnsureStreamAsync(
+        ApplicationConstants.Nats.ResultsStream,
+        new[] { ApplicationConstants.Nats.ResultsStreamSubject },
         CancellationToken.None);
 }
 
